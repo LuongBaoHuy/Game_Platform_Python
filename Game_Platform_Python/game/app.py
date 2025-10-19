@@ -1,3 +1,4 @@
+from distutils.spawn import spawn
 import pygame
 import sys
 import os
@@ -6,7 +7,6 @@ from game.map_loader import load_map
 from game.player import Player
 from game.menu import draw_menu
 from game.enemy import PatrolEnemy
-
 
 
 # ===============================
@@ -28,8 +28,9 @@ def main():
         HITBOX_LEFT_INSET,
         HITBOX_RIGHT_INSET,
     )
-    platforms, _ = load_map(
-        "D:/LapTrinh_Python/Python_Game/Game_Platform_Python/assets/maps/Map_test.tmx",
+
+    draw_tiles, platforms, spawn_point = load_map(
+        "D:/NAMCANTHO/Semester/Senior/HK8/LaptrinhPython/Game_Platform_Python-main/Game_Platform_Python/assets/maps/Map_test.tmx",
         hitbox_inset=HITBOX_INSET,
         top_inset=HITBOX_TOP_INSET,
         bottom_inset=HITBOX_BOTTOM_INSET,
@@ -38,7 +39,14 @@ def main():
     )
 
     # Tạo nhân vật
-    player = Player(100, 100)
+
+    # chọn điểm spawn
+    if spawn_point is None:
+        px, py = 100, 100
+    else:
+        px, py = spawn_point
+
+    player = Player(px, py)
     # Spawn enemies
     enemies = [PatrolEnemy(900, 600)]
     show_hitboxes = False  # Toggle hiển thị hitbox của từng bức tường (phím H)
@@ -59,7 +67,7 @@ def main():
         # Logic game
         player.handle_input()
         # update skills with delta seconds (e.g. dash)
-        if hasattr(player, 'update_skills'):
+        if hasattr(player, "update_skills"):
             player.update_skills(dt)
         # Use consolidated move() which applies gravity and resolves collisions
         player.move(platforms)
@@ -68,25 +76,43 @@ def main():
         # Render surface theo zoom
         render_w = int(WIDTH / ZOOM)
         render_h = int(HEIGHT / ZOOM)
-        render_surface = pygame.Surface((render_w, render_h))
+        render_surface = pygame.Surface((render_w, render_h))  # <-- tạo trước khi blit
         render_surface.fill((135, 206, 235))
 
         camera_x = player.rect.centerx - render_w // 2
         camera_y = player.rect.centery - render_h // 2
 
+        # vẽ tất cả layer
+        for img, x, y, _layer_name in draw_tiles:
+            if (
+                x + img.get_width() > camera_x
+                and x < camera_x + render_w
+                and y + img.get_height() > camera_y
+                and y < camera_y + render_h
+            ):
+                render_surface.blit(img, (x - camera_x, y - camera_y))
+
         for tile_img, rect in platforms:
-            if rect.right > camera_x and rect.left < camera_x + render_w and \
-               rect.bottom > camera_y and rect.top < camera_y + render_h:
-                render_surface.blit(tile_img,
-                                    (rect.x - camera_x, rect.y - camera_y))
+            if (
+                rect.right > camera_x
+                and rect.left < camera_x + render_w
+                and rect.bottom > camera_y
+                and rect.top < camera_y + render_h
+            ):
+                render_surface.blit(tile_img, (rect.x - camera_x, rect.y - camera_y))
 
         # Nếu bật debug, vẽ hitbox của từng bức tường (chỉ phần đang trong camera)
         if show_hitboxes:
             for _, rect in platforms:
-                if rect.right > camera_x and rect.left < camera_x + render_w and \
-                   rect.bottom > camera_y and rect.top < camera_y + render_h:
-                    draw_rect = pygame.Rect(rect.x - camera_x, rect.y - camera_y,
-                                            rect.width, rect.height)
+                if (
+                    rect.right > camera_x
+                    and rect.left < camera_x + render_w
+                    and rect.bottom > camera_y
+                    and rect.top < camera_y + render_h
+                ):
+                    draw_rect = pygame.Rect(
+                        rect.x - camera_x, rect.y - camera_y, rect.width, rect.height
+                    )
                     # Vẽ outline đỏ dày 2px
                     pygame.draw.rect(render_surface, (255, 0, 0), draw_rect, 2)
 
@@ -105,7 +131,11 @@ def main():
         fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (0, 0, 0))
         screen.blit(fps_text, (10, 10))
         # Hint nhỏ cho toggle hitbox
-        hint_text = font.render(f"H: Toggle wall hitboxes ({'ON' if show_hitboxes else 'OFF'})", True, (0, 0, 0))
+        hint_text = font.render(
+            f"H: Toggle wall hitboxes ({'ON' if show_hitboxes else 'OFF'})",
+            True,
+            (0, 0, 0),
+        )
         screen.blit(hint_text, (10, 40))
 
         pygame.display.flip()

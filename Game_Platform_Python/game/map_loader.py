@@ -1,48 +1,50 @@
-import pytmx
-import pygame
+import pytmx, pygame
 
 
-def load_map(filename,
-             hitbox_inset: int = 0,
-             top_inset: int = 0,
-             bottom_inset: int = 0,
-             left_inset: int = 0,
-             right_inset: int = 0):
-    """
-    Tải một bản đồ TMX và trả về danh sách (tile_surface, rect).
+def load_map(
+    filename,
+    *,
+    hitbox_inset=0,
+    top_inset=0,
+    bottom_inset=0,
+    left_inset=0,
+    right_inset=0
+):
+    tmx = pytmx.load_pygame(filename)
 
-    Các tham số để thu nhỏ hitbox:
-    - hitbox_inset: giá trị inset đơn kiểu legacy, áp dụng cho tất cả các cạnh nếu > 0
-    - top_inset/bottom_inset/left_inset/right_inset: inset theo từng cạnh
+    draw_layers = []  # Danh sách (surface, x, y) cho tất cả layer hiển thị
+    platforms = []  # Danh sách (surface, rect) chỉ cho layer 'solid'
+    spawn_point = None
 
-    Các inset theo từng cạnh sẽ ghi đè `hitbox_inset` khi được cung cấp (khác 0).
-    Kích thước Rect được giới hạn tối thiểu là 1x1.
-    """
-    tmx_data = pytmx.load_pygame(filename)
-    platforms = []
+    # Lấy vị trí spawn (object có name="player_spawn")
+    for obj in tmx.objects:
+        if getattr(obj, "name", "") == "player_spawn":
+            spawn_point = (int(obj.x + obj.width / 2), int(obj.y + obj.height))
+            break
 
-    for layer in tmx_data.layers:
+    for layer in tmx.visible_layers:
         if isinstance(layer, pytmx.TiledTileLayer):
             for x, y, gid in layer:
-                tile = tmx_data.get_tile_image_by_gid(gid)
-                if tile:
-                    screen_x = x * tmx_data.tilewidth
-                    screen_y = y * tmx_data.tileheight
-                    w = tmx_data.tilewidth
-                    h = tmx_data.tileheight
+                img = tmx.get_tile_image_by_gid(gid)
+                if not img:
+                    continue
+                px, py = x * tmx.tilewidth, y * tmx.tileheight
+                # Lưu tất cả tile để vẽ
+                draw_layers.append((img, px, py, layer.name))
 
-                    # Decide effective insets. If per-side values provided (non-zero)
-                    # use them; otherwise fall back to legacy `hitbox_inset`.
+                # Chỉ layer 'solid' có va chạm
+                if layer.name == "solid":
+                    w, h = tmx.tilewidth, tmx.tileheight
                     left = int(left_inset or hitbox_inset)
                     right = int(right_inset or hitbox_inset)
                     top = int(top_inset or hitbox_inset)
-                    bottom = int(bottom_inset or hitbox_inset)
+                    bot = int(bottom_inset or hitbox_inset)
+                    rect = pygame.Rect(
+                        px + left,
+                        py + top,
+                        max(1, w - left - right),
+                        max(1, h - top - bot),
+                    )
+                    platforms.append((img, rect))
 
-                    new_x = screen_x + left
-                    new_y = screen_y + top
-                    new_w = max(1, w - left - right)
-                    new_h = max(1, h - top - bottom)
-
-                    rect = pygame.Rect(new_x, new_y, new_w, new_h)
-                    platforms.append((tile, rect))
-    return platforms, tmx_data
+    return draw_layers, platforms, spawn_point
