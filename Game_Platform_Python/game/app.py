@@ -20,9 +20,21 @@ def main():
 
     font = pygame.font.SysFont("Arial", 24)
 
-    # Load map
+    # Load map (pass per-side hitbox inset from config)
+    from game.config import (
+        HITBOX_INSET,
+        HITBOX_TOP_INSET,
+        HITBOX_BOTTOM_INSET,
+        HITBOX_LEFT_INSET,
+        HITBOX_RIGHT_INSET,
+    )
     platforms, _ = load_map(
-        "D:/LapTrinh_Python/Python_Game/Game_Platform_Python/assets/maps/Map_test.tmx"
+        "D:/LapTrinh_Python/Python_Game/Game_Platform_Python/assets/maps/Map_test.tmx",
+        hitbox_inset=HITBOX_INSET,
+        top_inset=HITBOX_TOP_INSET,
+        bottom_inset=HITBOX_BOTTOM_INSET,
+        left_inset=HITBOX_LEFT_INSET,
+        right_inset=HITBOX_RIGHT_INSET,
     )
 
     # Tạo nhân vật
