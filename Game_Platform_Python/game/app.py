@@ -4,6 +4,12 @@ import os
 from game.config import WIDTH, HEIGHT, FPS, ZOOM, PLAYER_SCALE
 from game.map_loader import load_map
 from game.player import Player
+# Nếu package characters được cài, dùng factory để tạo nhân vật từ metadata
+try:
+    from game.characters.factory import create_player, list_characters
+except Exception:
+    create_player = None
+    list_characters = lambda: []
 from game.menu import draw_menu
 from game.enemy import PatrolEnemy
 
@@ -28,7 +34,7 @@ def main():
         HITBOX_LEFT_INSET,
         HITBOX_RIGHT_INSET,
     )
-    platforms, _ = load_map(
+    platforms, _, map_objects = load_map(
         "D:/LapTrinh_Python/Python_Game/Game_Platform_Python/assets/maps/Map_test.tmx",
         hitbox_inset=HITBOX_INSET,
         top_inset=HITBOX_TOP_INSET,
@@ -38,7 +44,34 @@ def main():
     )
 
     # Tạo nhân vật
-    player = Player(100, 100)
+    # tìm object spawn trong map_objects (tìm theo name hoặc type)
+    spawn = next(
+        (o for o in map_objects if o.get('name') == 'player_spawn' or o.get('type') == 'player'),
+        None
+    )
+    if spawn:
+        sx = int(spawn.get('x', 20))
+        sy = int(spawn.get('y', 20))
+        # Nếu factory khả dụng, tạo player từ metadata (chọn character đầu tiên tìm được)
+        ids = list_characters() if callable(list_characters) else []
+        if create_player and ids:
+            try:
+                player = create_player(ids[0], sx, sy)
+            except Exception:
+                # fallback an toàn
+                player = Player(sx, sy)
+        else:
+            player = Player(sx, sy)
+    else:
+        ids = list_characters() if callable(list_characters) else []
+        if create_player and ids:
+            try:
+                player = create_player(ids[0], 1200, 9200)
+            except Exception:
+                player = Player(1200, 9200)
+        else:
+            player = Player(1200, 9200)
+        
     # Spawn enemies
     enemies = [PatrolEnemy(900, 600)]
     show_hitboxes = False  # Toggle hiển thị hitbox của từng bức tường (phím H)
@@ -79,6 +112,33 @@ def main():
                rect.bottom > camera_y and rect.top < camera_y + render_h:
                 render_surface.blit(tile_img,
                                     (rect.x - camera_x, rect.y - camera_y))
+
+        # Draw object-layer tiles (e.g. large decorative tiles from object layer)
+        for obj in map_objects:
+            tile = obj.get('tile')
+            if not tile:
+                continue
+
+            ox = int(obj.get('x', 0))
+            oy = int(obj.get('y', 0))
+
+            # If tile image provided, align it so that object's y is the bottom of the image.
+            tw, th = tile.get_width(), tile.get_height()
+            # Tiled thường lưu y cho tile object là bottom -> substract tile height
+            oy_aligned = oy - th
+
+            # Build object's rect in world coordinates
+            obj_rect_world = pygame.Rect(ox, oy_aligned, tw, th)
+
+            # Camera rect in world coordinates
+            camera_rect = pygame.Rect(camera_x, camera_y, render_w, render_h)
+
+            # Only blit if intersects camera
+            if not obj_rect_world.colliderect(camera_rect):
+                continue
+
+            # Draw (offset by camera)
+            render_surface.blit(tile, (obj_rect_world.x - camera_x, obj_rect_world.y - camera_y))
 
         # Nếu bật debug, vẽ hitbox của từng bức tường (chỉ phần đang trong camera)
         if show_hitboxes:

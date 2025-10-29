@@ -20,8 +20,10 @@ def load_map(filename,
     """
     tmx_data = pytmx.load_pygame(filename)
     platforms = []
+    objects = []
 
     for layer in tmx_data.layers:
+        # Tile layers -> platforms
         if isinstance(layer, pytmx.TiledTileLayer):
             for x, y, gid in layer:
                 tile = tmx_data.get_tile_image_by_gid(gid)
@@ -45,4 +47,29 @@ def load_map(filename,
 
                     rect = pygame.Rect(new_x, new_y, new_w, new_h)
                     platforms.append((tile, rect))
-    return platforms, tmx_data
+        # Object layers -> collect objects
+        elif isinstance(layer, pytmx.TiledObjectGroup):
+            for obj in layer:
+                # obj may have properties; convert to a dict for convenience
+                gid = getattr(obj, 'gid', None)
+                tile_img = None
+                if gid:
+                    try:
+                        tile_img = tmx_data.get_tile_image_by_gid(gid)
+                    except Exception:
+                        tile_img = None
+
+                obj_dict = {
+                    'name': getattr(obj, 'name', None),
+                    'type': getattr(obj, 'type', None),
+                    'x': getattr(obj, 'x', 0),
+                    'y': getattr(obj, 'y', 0),
+                    'width': getattr(obj, 'width', 0),
+                    'height': getattr(obj, 'height', 0),
+                    'properties': obj.properties if hasattr(obj, 'properties') else {},
+                    'gid': gid,
+                    'tile': tile_img,
+                }
+                objects.append(obj_dict)
+
+    return platforms, tmx_data, objects

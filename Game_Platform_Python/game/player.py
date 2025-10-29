@@ -2,37 +2,60 @@ import pygame
 import os
 from game.config import PLAYER_SCALE, GRAVITY, JUMP_POWER, SPEED
 
+# Cố gắng import SkillBase để hỗ trợ hệ thống skill mới (data-driven).
+try:
+    from game.characters.skills import SkillBase
+except Exception:
+    SkillBase = None
+
 
 class Player:
-    def __init__(self, x, y):
-        # Hitbox kích thước phóng to theo PLAYER_SCALE
-        self.rect = pygame.Rect(x, y, int(120 * PLAYER_SCALE), int(240 * PLAYER_SCALE))
+    def __init__(self, x, y, sprite_path: str = None, frames_map: dict = None, scale: float = None):
+        """Player constructor.
+
+        Parameters:
+        - x, y: initial position
+        - sprite_path: optional base folder for <state> subfolders (idle/walk/jump/dash)
+        - frames_map: optional dict mapping state -> explicit folder path
+        - scale: optional scale to override global PLAYER_SCALE
+        """
+        self.scale = scale if (scale is not None) else PLAYER_SCALE
+        # Hitbox kích thước phóng to theo scale
+        self.rect = pygame.Rect(x, y, int(120 * self.scale), int(240 * self.scale))
         self.vel_y = 0
         self.vel_x = 0
         self.on_ground = False
         self.facing_right = True
 
-        # Load các animation
-        sprite_size = (int(512 * PLAYER_SCALE), int(512 * PLAYER_SCALE))
-        # NOTE: use proper Windows absolute paths (include backslash after drive)
-        self.animations = {
-            "idle": self.load_frames(r"D:\LapTrinh_Python\Python_Game\BlueWizard\2BlueWizardIdle", sprite_size),
-            "walk": self.load_frames(r"D:\LapTrinh_Python\Python_Game\BlueWizard\2BlueWizardWalk", sprite_size),
-            "jump": self.load_frames(r"D:\LapTrinh_Python\Python_Game\BlueWizard\2BlueWizardJump", sprite_size),
-            # Dash animation (user-provided folder)
-            "dash": self.load_frames(r"D:\LapTrinh_Python\Python_Game\BlueWizard\2BlueWizardJump\Dash2", sprite_size),
-        }
+        # Prepare animations container. We'll load frames conditionally below.
+        self.animations = {"idle": [], "walk": [], "jump": [], "dash": []}
+        sprite_size = (int(512 * self.scale), int(512 * self.scale))
+
+        # If frames_map or sprite_path provided, try to load frames accordingly.
+        frames_map = frames_map or {}
+        if frames_map:
+            for state in ("idle", "walk", "jump", "dash"):
+                folder = frames_map.get(state)
+                if folder:
+                    self.animations[state] = self.load_frames(folder, sprite_size)
+        elif sprite_path:
+            for state in ("idle", "walk", "jump", "dash"):
+                candidate = os.path.join(sprite_path, state)
+                self.animations[state] = self.load_frames(candidate, sprite_size)
 
         self.state = "idle"
         self.current_frame = 0
         self.animation_timer = 0
         self.animation_speed = 0.15
 
-        # Skills: dash implemented here
-        # dash: short burst of horizontal speed with cooldown
+        # Skills: có thể là legacy dict (như trước) hoặc các instance SkillBase
+        # Nếu factory gắn skill (SkillBase) thì self.skills sẽ chứa các instance
+        # Ví dụ dạng legacy: self.skills = {"dash": {"cooldown":..., ...}}
         self.skills = {
             "dash": {"cooldown": 1.0, "last_used": -999.0, "duration": 0.18, "active": False, "speed_multiplier": 3.0}
         }
+        # skill_timers dùng cho legacy implementation; SkillBase subclasses có thể
+        # quản lý timer riêng trong instance của chúng.
         self.skill_timers = {}
 
     def load_frames(self, folder, size):
@@ -64,7 +87,17 @@ class Player:
         keys = pygame.key.get_pressed()
         moving = False
         # Nếu đang dash thì không override vel_x từ input
-        if not self.skills["dash"]["active"]:
+        # Hỗ trợ cả 2 hệ thống skill:
+        # - Nếu skill là object (SkillBase) dùng thuộc tính .active
+        # - Nếu là dict legacy thì dùng key 'active'
+        dash_obj = self.skills.get("dash")
+        dash_active = False
+        if isinstance(dash_obj, dict):
+            dash_active = bool(dash_obj.get("active"))
+        elif SkillBase is not None and hasattr(dash_obj, 'active'):
+            dash_active = bool(getattr(dash_obj, 'active', False))
+
+        if not dash_active:
             self.vel_x = 0
             # Move left: Left arrow or A
             if keys[pygame.K_LEFT] or keys[pygame.K_a]:
@@ -80,7 +113,17 @@ class Player:
         # Dash key (K)
         if keys[pygame.K_k]:
             now = pygame.time.get_ticks() / 1000.0
-            self.use_skill("dash", now)
+            # Nếu skill là object: gọi phương thức use của nó
+            dash = self.skills.get("dash")
+            if SkillBase is not None and not isinstance(dash, dict) and hasattr(dash, 'use'):
+                # use(now, owner) -> skill có thể căn cứ owner.vel_x để áp lực
+                try:
+                    dash.use(now, self)
+                except Exception:
+                    pass
+            else:
+                # fallback sang legacy
+                self.use_skill("dash", now)
         # Jump: Space or W
         if (keys[pygame.K_SPACE] or keys[pygame.K_w]) and self.on_ground:
             self.vel_y = JUMP_POWER
@@ -89,7 +132,16 @@ class Player:
             self.current_frame = 0
 
         # Không ghi đè state nếu đang dash, để dash animation có thể chạy
-        if not self.skills["dash"]["active"]:
+        # Dùng dash_active (đã tính toán ở trên) để tránh KeyError khi c.skills không có 'dash'
+        # Recompute dash_active because use() above may have activated the skill
+        dash_obj = self.skills.get("dash")
+        dash_active = False
+        if isinstance(dash_obj, dict):
+            dash_active = bool(dash_obj.get("active"))
+        elif SkillBase is not None and hasattr(dash_obj, 'active'):
+            dash_active = bool(getattr(dash_obj, 'active', False))
+
+        if not dash_active:
             if not self.on_ground:
                 self.state = "jump"
             elif moving:
@@ -120,7 +172,15 @@ class Player:
                     self.vel_y = 0
 
     def update_animation(self):
-        frames = self.animations[self.state]
+        frames = self.animations.get(self.state, [])
+        # If there are no frames for this state, keep current_frame at 0 and skip
+        if not frames:
+            self.current_frame = 0
+            return
+
+        # Ensure current_frame is within bounds
+        self.current_frame = max(0, min(self.current_frame, len(frames) - 1))
+
         self.animation_timer += self.animation_speed
         if self.state == "jump":
             if self.current_frame < len(frames) - 1:
@@ -131,40 +191,69 @@ class Player:
                 self.current_frame = len(frames) - 1
         else:
             if self.animation_timer >= 1:
+                # advance and wrap
                 self.current_frame = (self.current_frame + 1) % len(frames)
                 self.animation_timer = 0
 
     def use_skill(self, name, now_time):
+        # Legacy fallback: nếu skill là dict thì xử lý như cũ
         s = self.skills.get(name)
         if not s:
             return False
-        if now_time - s["last_used"] < s["cooldown"]:
+        if isinstance(s, dict):
+            if now_time - s.get("last_used", -999.0) < s.get("cooldown", 0):
+                return False
+            s["last_used"] = now_time
+            if name == "dash":
+                s["active"] = True
+                self.skill_timers["dash_time_left"] = s.get("duration", 0.18)
+                mult = s.get("speed_multiplier", 2.0)
+                self.vel_x = SPEED * mult if self.facing_right else -SPEED * mult
+                # switch to dash animation
+                self.state = "dash"
+                self.current_frame = 0
+            return True
+        else:
+            # Nếu là skill object (SkillBase), gọi phương thức use
+            if hasattr(s, 'use'):
+                try:
+                    return s.use(now_time, self)
+                except Exception:
+                    return False
             return False
-        s["last_used"] = now_time
-        if name == "dash":
-            s["active"] = True
-            self.skill_timers["dash_time_left"] = s["duration"]
-            mult = s.get("speed_multiplier", 2.0)
-            self.vel_x = SPEED * mult if self.facing_right else -SPEED * mult
-            # switch to dash animation
-            self.state = "dash"
-            self.current_frame = 0
-        return True
 
     def update_skills(self, dt):
         # dt in seconds
-        dash = self.skills.get("dash")
-        if dash and dash["active"]:
-            self.skill_timers["dash_time_left"] -= dt
-            if self.skill_timers["dash_time_left"] <= 0:
-                dash["active"] = False
-                # stop dash horizontal velocity (input will set next frame)
-                self.vel_x = 0
-                # after dash, reset state so animation returns properly
-                self.state = "idle"
+        # Hỗ trợ cả hệ thống mới (SkillBase instances) và legacy dict
+        for name, s in list(self.skills.items()):
+            # Nếu là object có update method -> dùng nó
+            if not isinstance(s, dict) and hasattr(s, 'update'):
+                try:
+                    s.update(dt, self)
+                except Exception:
+                    pass
+                continue
+
+            # Legacy xử lý cho dash
+            if name == "dash" and isinstance(s, dict):
+                if s.get("active"):
+                    self.skill_timers["dash_time_left"] -= dt
+                    if self.skill_timers["dash_time_left"] <= 0:
+                        s["active"] = False
+                        # stop dash horizontal velocity (input will set next frame)
+                        self.vel_x = 0
+                        # after dash, reset state so animation returns properly
+                        self.state = "idle"
 
     def draw(self, surface, camera_x, camera_y):
-        frames = self.animations[self.state]
+        frames = self.animations.get(self.state, [])
+        if not frames:
+            return
+
+        # Clamp current_frame to valid index
+        if self.current_frame >= len(frames) or self.current_frame < 0:
+            self.current_frame = self.current_frame % len(frames)
+
         frame_surf, bottom_trim = frames[self.current_frame]
         if not self.facing_right:
             frame_surf = pygame.transform.flip(frame_surf, True, False)
