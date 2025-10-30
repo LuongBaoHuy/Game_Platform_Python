@@ -100,25 +100,48 @@ _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(__fil
 
 
 class Projectile:
-    def __init__(self, x, y, vx, vy, frames, lifetime=1.5, damage=25, owner=None):
+    def __init__(self, x, y, vx, vy, frames, lifetime=1.5, damage=25, owner=None, scale=1.0):
         self.x = x
         self.y = y
         self.vx = vx
         self.vy = vy
-        self.frames = frames or []
+        self.raw_frames = frames or []
+        self.scale = float(scale) if scale is not None else 1.0
+        # prepare scaled frames (surface, trim)
+        self.frames = []
+        for item in self.raw_frames:
+            try:
+                surf, trim = item
+            except Exception:
+                surf = item
+                trim = 0
+            if self.scale != 1.0 and surf is not None:
+                w, h = surf.get_size()
+                sw = max(1, int(w * self.scale))
+                sh = max(1, int(h * self.scale))
+                try:
+                    scaled = pygame.transform.scale(surf, (sw, sh))
+                except Exception:
+                    scaled = surf
+                self.frames.append((scaled, trim))
+            else:
+                self.frames.append((surf, trim))
+
         self.current = 0
         self.timer = 0.0
         self.frame_time = 0.06
         self.lifetime = lifetime
         self.age = 0.0
         # compute bounding rect from first frame if available
-        if self.frames:
+        if self.frames and self.frames[0][0] is not None:
             surf, _ = self.frames[0]
             self.rect = surf.get_rect(center=(int(self.x), int(self.y)))
         else:
-            self.rect = pygame.Rect(int(self.x), int(self.y), 8, 8)
+            self.rect = pygame.Rect(int(self.x), int(self.y), max(8, int(8 * self.scale)), max(8, int(8 * self.scale)))
         self.damage = damage
         self.owner = owner
+        # for piercing projectiles we track which enemies we've already hit
+        self.hit_targets = set()
 
     def update(self, dt):
         self.age += dt
@@ -155,8 +178,11 @@ class ProjectileSkill(SkillBase):
       - lifetime: lifetime in seconds
       - cooldown
     """
-    def __init__(self, frames_path=None, speed=800, lifetime=1.2, cooldown=0.5, damage=25, **kwargs):
+
+    def __init__(self, frames_path=None, speed=3600, lifetime=1.2, cooldown=0.5, damage=25, **kwargs):
         super().__init__(cooldown=cooldown)
+        # Keep blast visuals at normal size by default
+        self.scale = 1.0
         self.frames_path = frames_path
         self.speed = speed
         self.lifetime = lifetime
@@ -195,7 +221,7 @@ class ProjectileSkill(SkillBase):
         # spawn a bit in front
         spawn_x = ox + dir_x * (owner.rect.width // 2 + 8)
         spawn_y = oy
-        proj = Projectile(spawn_x, spawn_y, vx, vy, self.frames, lifetime=self.lifetime, damage=self.damage, owner=owner)
+        proj = Projectile(spawn_x, spawn_y, vx, vy, self.frames, lifetime=self.lifetime, damage=self.damage, owner=owner, scale=self.scale)
         self.projectiles.append(proj)
         self.active = True
         self.last_used = now
@@ -236,4 +262,119 @@ class ProjectileSkill(SkillBase):
 
 
 registry.register_skill('blast', ProjectileSkill)
+
+
+class ChargeSkill(SkillBase):
+    """Chargeable shot: hold to increase damage and speed, release to fire.
+
+    Usage:
+      - begin(now, owner) -> start charging (checks cooldown)
+      - release(now, owner, held_time) -> fire projectile with power based on held_time
+    """
+
+    def __init__(self, frames_path=None, base_speed=1200, base_damage=30, max_charge=3.0, lifetime=1.5, cooldown=0.2, **kwargs):
+        super().__init__(cooldown=cooldown)
+        # ChargeSkill visuals default to very large (20x). Can be overridden in metadata via 'scale'.
+        self.scale = float(kwargs.get('scale', 20.0))
+        # If no explicit frames_path provided, prefer the purple_skill subfolder
+        if not frames_path:
+            frames_path = os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill')
+        self.frames_path = frames_path
+        self.base_speed = base_speed
+        self.base_damage = base_damage
+        self.max_charge = float(max_charge)
+        self.lifetime = lifetime
+        self.projectiles = []
+        self.charging = False
+        self.charge_start = 0.0
+
+        # load frames from candidates: explicit frames_path, repo-relative, default assets/skill-effect
+        frames = []
+        candidates = []
+        if frames_path:
+            candidates.append(frames_path)
+            candidates.append(os.path.join(_REPO_ROOT, frames_path))
+        # Prefer the purple_skill folder (contains PNG frames). Also try the generic skill-effect folder.
+        candidates.append(os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill'))
+        candidates.append(os.path.join(_REPO_ROOT, 'assets', 'skill-effect'))
+
+        for cand in candidates:
+            cand = os.path.normpath(cand)
+            if os.path.isdir(cand):
+                for fn in sorted(os.listdir(cand)):
+                    if fn.lower().endswith('.png'):
+                        try:
+                            img = pygame.image.load(os.path.join(cand, fn)).convert_alpha()
+                        except Exception:
+                            continue
+                        frames.append((img, 0))
+                break
+
+        self.frames = frames
+
+    def begin(self, now: float, owner) -> bool:
+        if not self.can_use(now):
+            return False
+        self.charging = True
+        self.charge_start = now
+        return True
+
+    def release(self, now: float, owner, held_time: float) -> bool:
+        # clamp charge
+        charge = max(0.0, min(self.max_charge, float(held_time)))
+        mult = 1.0 + 2.0 * (charge / self.max_charge)  # 1.0 -> 3.0
+        speed = float(self.base_speed) * mult
+        damage = int(self.base_damage * mult)
+
+        dir_x = 1 if getattr(owner, 'facing_right', True) else -1
+        vx = dir_x * speed
+        vy = 0
+        ox = owner.rect.centerx
+        oy = owner.rect.centery
+        spawn_x = ox + dir_x * (owner.rect.width // 2 + 8)
+        spawn_y = oy
+        proj = Projectile(spawn_x, spawn_y, vx, vy, self.frames, lifetime=self.lifetime, damage=damage, owner=owner, scale=self.scale)
+        self.projectiles.append(proj)
+        self.active = True
+        self.last_used = now
+        self.charging = False
+        return True
+
+    def update(self, dt: float, owner) -> None:
+        alive = []
+        for p in self.projectiles:
+            if p.update(dt):
+                alive.append(p)
+        self.projectiles = alive
+        if not self.projectiles:
+            self.active = False
+
+    def draw(self, surface, camera_x=0, camera_y=0):
+        for p in self.projectiles:
+            p.draw(surface, camera_x, camera_y)
+
+    def handle_collisions(self, enemies: list):
+        # Piercing behavior: charged projectiles should pass through enemies.
+        # Apply damage once per enemy per projectile by tracking hit targets
+        for p in list(self.projectiles):
+            for e in enemies:
+                try:
+                    if e.rect.colliderect(p.rect):
+                        eid = id(e)
+                        if eid in getattr(p, 'hit_targets', set()):
+                            # already damaged this enemy with this projectile
+                            continue
+                        if hasattr(e, 'take_damage'):
+                            e.take_damage(p.damage)
+                        # record that this projectile has hit this enemy
+                        try:
+                            p.hit_targets.add(eid)
+                        except Exception:
+                            p.hit_targets = getattr(p, 'hit_targets', set())
+                            p.hit_targets.add(eid)
+                except Exception:
+                    continue
+
+
+registry.register_skill('charge', ChargeSkill)
 

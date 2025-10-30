@@ -10,6 +10,6 @@
   },
   "skills": [
     {"id": "dash", "params": {"cooldown": 1.0, "duration": 0.18, "speed_multiplier": 3.0}},
-    {"id": "blast", "params": {"frames_path": "assets/skill-effect/purple_skill", "speed": 900, "lifetime": 1.2, "cooldown": 0.6}}
+    {"id": "blast", "params": {"frames_path": "assets/skill-effect/purple_skill", "speed": 2700, "lifetime": 1.2, "cooldown": 0.6}}
   ]
 }
