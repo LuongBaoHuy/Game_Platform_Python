@@ -70,12 +70,23 @@ class PatrolEnemy:
         self.attack_speed = 160
         self.attack_duration = 0.5
         self.attack_timer = 0.0
+        self.attack_damage = 10
+        # attack cadence (seconds between hurt ticks while in attack state)
+        self.attack_cooldown = 0.8
+        self._attack_cooldown_timer = 0.0
+
+        # Health
+        self.max_hp = 50
+        self.hp = self.max_hp
+        self.dead = False
 
     def update(self, dt, platforms, player):
         # dt tính bằng giây
         dx = player.rect.centerx - self.rect.centerx
         dy = abs(player.rect.centery - self.rect.centery)
         prev_state = self.state
+        if self.dead:
+            return
         
         # gravity (dùng hệ số GRAVITY=2 giống player)
         self.vel_y += GRAVITY  # không nhân với dt ở đây
@@ -98,7 +109,19 @@ class PatrolEnemy:
             if abs(dx) <= self.attack_range:
                 # vào tầm đánh
                 self.state = 'attack'
-                self.attack_timer = self.attack_duration
+                # trigger an attack: apply damage periodically while staying in attack state
+                if prev_state != 'attack':
+                    # Fresh attack entry: reset timers so we hit immediately
+                    self.attack_timer = self.attack_duration
+                    self._attack_cooldown_timer = 0.0
+                # decrease cooldown timer and apply damage when ready
+                self._attack_cooldown_timer -= dt
+                if self._attack_cooldown_timer <= 0.0:
+                    try:
+                        player.take_damage(self.attack_damage)
+                    except Exception:
+                        pass
+                    self._attack_cooldown_timer = self.attack_cooldown
                 # don't move further when attacking
             else:
                 self.state = 'walk'
@@ -134,6 +157,10 @@ class PatrolEnemy:
                 self.anim_timer = 0.0
 
     def draw(self, surface, camera_x, camera_y, show_hitbox: bool = False):
+        if self.dead:
+            # draw nothing or a tombstone placeholder
+            return
+
         frames = self.animations.get(self.state) or []
         if not frames:
             pygame.draw.rect(surface, (150, 50, 50), (self.rect.x - camera_x, self.rect.y - camera_y, self.rect.width, self.rect.height))
@@ -147,3 +174,45 @@ class PatrolEnemy:
         # Vẽ hitbox nếu bật
         if show_hitbox:
             pygame.draw.rect(surface, (255, 0, 0), (self.rect.x - camera_x, self.rect.y - camera_y, self.rect.width, self.rect.height), 2)
+
+        # Draw a small HP bar above the enemy when damaged
+        try:
+            if hasattr(self, 'hp') and hasattr(self, 'max_hp') and not self.dead and self.max_hp > 0:
+                if self.hp < self.max_hp:
+                    bar_w = max(40, int(self.rect.width))
+                    bar_h = 6
+                    # Position: centered above sprite
+                    bx = int(self.rect.centerx - bar_w // 2 - camera_x)
+                    by = int(self.rect.top - 10 - camera_y)
+                    # Background
+                    pygame.draw.rect(surface, (50, 50, 50), (bx, by, bar_w, bar_h))
+                    # Filled portion
+                    pct = max(0.0, min(1.0, float(self.hp) / float(self.max_hp)))
+                    filled_w = int(bar_w * pct)
+                    if filled_w > 0:
+                        # color transitions from red -> yellow -> green
+                        if pct > 0.6:
+                            col = (50, 205, 50)
+                        elif pct > 0.3:
+                            col = (255, 200, 0)
+                        else:
+                            col = (220, 30, 30)
+                        pygame.draw.rect(surface, col, (bx, by, filled_w, bar_h))
+                    # Border
+                    pygame.draw.rect(surface, (0, 0, 0), (bx, by, bar_w, bar_h), 1)
+        except Exception:
+            # Don't let HP drawing crash the game
+            pass
+
+    def take_damage(self, amount: int):
+        try:
+            self.hp -= int(amount)
+        except Exception:
+            self.hp -= amount
+        if self.hp <= 0:
+            self.hp = 0
+            self.dead = True
+            self.state = 'dead'
+            print(f"Enemy died")
+        else:
+            print(f"Enemy took {amount} damage, hp={self.hp}/{self.max_hp}")

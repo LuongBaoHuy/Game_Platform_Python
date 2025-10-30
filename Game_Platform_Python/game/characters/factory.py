@@ -48,6 +48,7 @@ def create_player(char_id: str, x: int, y: int) -> Character:
     if sprite_path and not os.path.isabs(sprite_path):
         sprite_path = os.path.normpath(os.path.join(repo_root, sprite_path))
     scale = meta.get('scale', 1.0)
+    frames_map = meta.get('frames', {}) if isinstance(meta.get('frames', {}), dict) else {}
 
     # Tạo instance Player (nếu có) để giữ nguyên logic input/move/animation.
     # Import Player lazily to avoid circular import at module import time.
