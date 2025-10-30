@@ -14,7 +14,6 @@ from game.menu import draw_menu
 from game.enemy import PatrolEnemy
 
 
-
 # ===============================
 # Main Game
 # ===============================
@@ -241,11 +240,35 @@ def main():
         hint_text = font.render(f"H: Toggle wall hitboxes ({'ON' if show_hitboxes else 'OFF'})", True, (0, 0, 0))
         screen.blit(hint_text, (10, 40))
 
-        # Hiển thị HP và tọa độ người chơi (world coordinates)
+        # Hiển thị thanh HP đồ họa và tọa độ người chơi (world coordinates)
         try:
-            if hasattr(player, 'hp') and hasattr(player, 'max_hp'):
-                hp_text = font.render(f"HP: {int(player.hp)}/{int(player.max_hp)}", True, (0, 0, 0))
-                screen.blit(hp_text, (10, 70))
+            # Player HP bar: top-left, 200x18
+            if hasattr(player, 'hp') and hasattr(player, 'max_hp') and player.max_hp > 0:
+                bar_x = 10
+                bar_y = 70
+                bar_w = 200
+                bar_h = 18
+                # background
+                pygame.draw.rect(screen, (80, 80, 80), (bar_x, bar_y, bar_w, bar_h))
+                pct = max(0.0, min(1.0, float(player.hp) / float(player.max_hp)))
+                fill_w = int(bar_w * pct)
+                # color lerp: red -> yellow -> green
+                if pct > 0.6:
+                    col = (50, 205, 50)
+                elif pct > 0.3:
+                    col = (255, 200, 0)
+                else:
+                    col = (220, 30, 30)
+                if fill_w > 0:
+                    pygame.draw.rect(screen, col, (bar_x, bar_y, fill_w, bar_h))
+                pygame.draw.rect(screen, (0, 0, 0), (bar_x, bar_y, bar_w, bar_h), 2)
+                # numeric text inside bar
+                try:
+                    hp_label = font.render(f"{int(player.hp)}/{int(player.max_hp)}", True, (0, 0, 0))
+                    lbl_rect = hp_label.get_rect(center=(bar_x + bar_w // 2, bar_y + bar_h // 2))
+                    screen.blit(hp_label, lbl_rect)
+                except Exception:
+                    pass
 
             px = int(player.rect.centerx)
             py = int(player.rect.centery)
