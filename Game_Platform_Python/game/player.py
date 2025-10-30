@@ -47,6 +47,10 @@ class Player:
         self.current_frame = 0
         self.animation_timer = 0
         self.animation_speed = 0.15
+        # Health
+        self.max_hp = 100
+        self.hp = self.max_hp
+        self.alive = True
 
         # Skills: có thể là legacy dict (như trước) hoặc các instance SkillBase
         # Nếu factory gắn skill (SkillBase) thì self.skills sẽ chứa các instance
@@ -124,6 +128,18 @@ class Player:
             else:
                 # fallback sang legacy
                 self.use_skill("dash", now)
+        # Blast key (J) - chưởng ra
+        if keys[pygame.K_j]:
+            now = pygame.time.get_ticks() / 1000.0
+            blast = self.skills.get("blast")
+            if SkillBase is not None and not isinstance(blast, dict) and hasattr(blast, 'use'):
+                try:
+                    blast.use(now, self)
+                except Exception:
+                    pass
+            else:
+                # If legacy dict provided, try use_skill fallback
+                self.use_skill("blast", now)
         # Jump: Space or W
         if (keys[pygame.K_SPACE] or keys[pygame.K_w]) and self.on_ground:
             self.vel_y = JUMP_POWER
@@ -222,6 +238,18 @@ class Player:
                     return False
             return False
 
+    def take_damage(self, amount: int):
+        try:
+            self.hp -= int(amount)
+        except Exception:
+            self.hp -= amount
+        if self.hp <= 0:
+            self.hp = 0
+            self.alive = False
+            print(f"Player: died")
+        else:
+            print(f"Player: took {amount} damage, hp={self.hp}/{self.max_hp}")
+
     def update_skills(self, dt):
         # dt in seconds
         # Hỗ trợ cả hệ thống mới (SkillBase instances) và legacy dict
@@ -263,3 +291,11 @@ class Player:
         pygame.draw.rect(surface, (255, 0, 0),
                          (self.rect.x - camera_x, self.rect.y - camera_y,
                           self.rect.width, self.rect.height), 2)
+
+        # Draw any skill visuals (e.g. projectiles) if skill instances expose draw()
+        for name, s in getattr(self, 'skills', {}).items():
+            if not isinstance(s, dict) and hasattr(s, 'draw'):
+                try:
+                    s.draw(surface, camera_x, camera_y)
+                except Exception:
+                    pass

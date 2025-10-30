@@ -52,6 +52,7 @@ def main():
     if spawn:
         sx = int(spawn.get('x', 20))
         sy = int(spawn.get('y', 20))
+        spawn_pos = (sx, sy)
         # Nếu factory khả dụng, tạo player từ metadata (chọn character đầu tiên tìm được)
         ids = list_characters() if callable(list_characters) else []
         if create_player and ids:
@@ -67,13 +68,28 @@ def main():
         if create_player and ids:
             try:
                 player = create_player(ids[0], 1200, 9200)
+                spawn_pos = (1200, 9200)
             except Exception:
                 player = Player(1200, 9200)
+                spawn_pos = (1200, 9200)
         else:
             player = Player(1200, 9200)
+            spawn_pos = (1200, 9200)
         
-    # Spawn enemies
-    enemies = [PatrolEnemy(900, 600)]
+    # Spawn enemies in the user-defined rectangle
+    import random
+
+    ENEMY_SPAWN_MIN_X = 1000
+    ENEMY_SPAWN_MAX_X = 14200
+    ENEMY_SPAWN_MIN_Y = 1500
+    ENEMY_SPAWN_MAX_Y = 9000
+    ENEMY_COUNT = 12  # default number of enemies to spawn
+
+    enemies = []
+    for i in range(ENEMY_COUNT):
+        ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
+        ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
+        enemies.append(PatrolEnemy(ex, ey))
     show_hitboxes = False  # Toggle hiển thị hitbox của từng bức tường (phím H)
 
     running = True
@@ -85,18 +101,46 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
+                # Toggle hiển thị hitbox tường
                 if event.key == pygame.K_h:
-                    # Toggle hiển thị hitbox tường
                     show_hitboxes = not show_hitboxes
+                # If player died, allow respawn (R) or quit (Q)
+                if hasattr(player, 'alive') and not getattr(player, 'alive'):
+                    if event.key == pygame.K_r:
+                        # Respawn: reset HP and position
+                        try:
+                            player.hp = getattr(player, 'max_hp', 100)
+                            player.alive = True
+                            # move to spawn_pos if available
+                            if 'spawn_pos' in locals():
+                                player.rect.midbottom = spawn_pos
+                            player.state = 'idle'
+                            player.current_frame = 0
+                            player.vel_x = 0
+                            player.vel_y = 0
+                        except Exception:
+                            pass
+                    elif event.key == pygame.K_q:
+                        running = False
 
-        # Logic game
-        player.handle_input()
-        # update skills with delta seconds (e.g. dash)
-        if hasattr(player, 'update_skills'):
-            player.update_skills(dt)
-        # Use consolidated move() which applies gravity and resolves collisions
-        player.move(platforms)
-        player.update_animation()
+        # Logic game - only run updates when player is alive. When dead,
+        # we'll still draw the last frame and show the death overlay while
+        # listening for R/Q to respawn or quit.
+        if getattr(player, 'alive', True):
+            player.handle_input()
+            # update skills with delta seconds (e.g. dash)
+            if hasattr(player, 'update_skills'):
+                player.update_skills(dt)
+            # Use consolidated move() which applies gravity and resolves collisions
+            player.move(platforms)
+            player.update_animation()
+        else:
+            # freeze velocities to avoid physics progressing while dead
+            try:
+                player.vel_x = 0
+                player.vel_y = 0
+            except Exception:
+                pass
 
         # Render surface theo zoom
         render_w = int(WIDTH / ZOOM)
@@ -152,10 +196,39 @@ def main():
 
         # Vẽ nhân vật
         player.draw(render_surface, camera_x, camera_y)
-        # Update & draw enemies
+
+        # Chỉ cập nhật và vẽ enemies nằm trong vùng hoạt động (gần camera)
+        # để tránh update nhiều đối tượng ở xa gây lag.
+        activity_margin = 800  # pixels mở rộng quanh camera để 'kích hoạt' enemy
+        active_rect = pygame.Rect(camera_x - activity_margin, camera_y - activity_margin,
+                                  render_w + activity_margin * 2, render_h + activity_margin * 2)
+
+        # Lọc platforms chỉ trong vùng hoạt động để giảm chi phí va chạm
+        nearby_platforms = [p for p in platforms if p[1].colliderect(active_rect)]
+
         for e in enemies:
-            e.update(dt, platforms, player)
-            e.draw(render_surface, camera_x, camera_y, show_hitboxes)
+            # Nếu enemy nằm trong vùng hoạt động, cập nhật và vẽ
+            if e.rect.colliderect(active_rect):
+                # Only update enemy AI when player is alive; otherwise keep them frozen
+                if getattr(player, 'alive', True):
+                    e.update(dt, nearby_platforms, player)
+                e.draw(render_surface, camera_x, camera_y, show_hitboxes)
+            else:
+                # Nếu ở xa, bỏ qua update nặng; vẫn có thể áp dụng một cập nhật tối giản
+                # như giảm tick timer mỗi vài frame nếu cần (để tiết kiệm CPU chúng ta skip hoàn toàn)
+                pass
+
+        # Handle projectile -> enemy collisions from player's skills (only while alive)
+        if getattr(player, 'alive', True):
+            for name, s in getattr(player, 'skills', {}).items():
+                if not isinstance(s, dict) and hasattr(s, 'handle_collisions'):
+                    try:
+                        s.handle_collisions(enemies)
+                    except Exception:
+                        pass
+
+        # Remove dead enemies from the list to avoid further processing
+        enemies = [en for en in enemies if not getattr(en, 'dead', False)]
 
         # Scale ra màn hình
         scaled_surface = pygame.transform.scale(render_surface, (WIDTH, HEIGHT))
@@ -167,6 +240,38 @@ def main():
         # Hint nhỏ cho toggle hitbox
         hint_text = font.render(f"H: Toggle wall hitboxes ({'ON' if show_hitboxes else 'OFF'})", True, (0, 0, 0))
         screen.blit(hint_text, (10, 40))
+
+        # Hiển thị HP và tọa độ người chơi (world coordinates)
+        try:
+            if hasattr(player, 'hp') and hasattr(player, 'max_hp'):
+                hp_text = font.render(f"HP: {int(player.hp)}/{int(player.max_hp)}", True, (0, 0, 0))
+                screen.blit(hp_text, (10, 70))
+
+            px = int(player.rect.centerx)
+            py = int(player.rect.centery)
+            coord_text = font.render(f"Pos: x={px} y={py}", True, (0, 0, 0))
+            screen.blit(coord_text, (10, 100))
+        except Exception:
+            # Nếu player chưa có rect hoặc lỗi, im lặng
+            pass
+
+        # Nếu người chơi đã chết, vẽ overlay thông báo và chờ phím R/Q (respawn/quit)
+        try:
+            if hasattr(player, 'alive') and not player.alive:
+                # semi-transparent dark overlay
+                overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, 160))
+                screen.blit(overlay, (0, 0))
+                big_font = pygame.font.SysFont("Arial", 64)
+                small_font = pygame.font.SysFont("Arial", 28)
+                text = big_font.render("YOU DIED", True, (255, 50, 50))
+                text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 40))
+                screen.blit(text, text_rect)
+                info = small_font.render("Press R to respawn or Q to quit", True, (220, 220, 220))
+                info_rect = info.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 30))
+                screen.blit(info, info_rect)
+        except Exception:
+            pass
 
         pygame.display.flip()
 
