@@ -33,7 +33,6 @@ class Character:
         if not folder:
             return frames
         if not os.path.isdir(folder):
-            print(f"Character.load_frames: folder not found: {folder}")
             return frames
         for filename in sorted(os.listdir(folder)):
             if filename.endswith('.png'):

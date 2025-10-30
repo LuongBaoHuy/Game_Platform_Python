@@ -3,10 +3,11 @@
   "name": "Blue Wizard",
   "scale": 1.25,
   "frames": {
-    "idle": "../BlueWizard/2BlueWizardIdle",
-    "walk": "../BlueWizard/2BlueWizardWalk",
-    "jump": "../BlueWizard/2BlueWizardJump",
-    "dash": "../BlueWizard/2BlueWizardJump/Dash2"
+    "idle": "2BlueWizardIdle",
+    "walk": "2BlueWizardWalk",
+    "jump": "2BlueWizardJump",
+    "dash": "2BlueWizardJump/Dash2",
+    "attack": "2BlueWizardIdle"
   },
   "skills": [
     {"id": "dash", "params": {"cooldown": 1.0, "duration": 0.18, "speed_multiplier": 3.0}},

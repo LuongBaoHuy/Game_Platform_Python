@@ -213,6 +213,27 @@ class PatrolEnemy:
             self.hp = 0
             self.dead = True
             self.state = 'dead'
-            print(f"Enemy died")
-        else:
-            print(f"Enemy took {amount} damage, hp={self.hp}/{self.max_hp}")
+
+try:
+    from game.characters.data_driven_enemy import DataDrivenEnemy
+    from game.enemy_registry import register_enemy
+
+    # Đăng ký Golem và Minotaur
+    register_enemy('Golem_02', DataDrivenEnemy)
+    register_enemy('Golem_03', DataDrivenEnemy)
+    register_enemy('minotaur_01', DataDrivenEnemy)
+    register_enemy('minotaur_02', DataDrivenEnemy)
+    register_enemy('minotaur_03', DataDrivenEnemy)
+except Exception as _e:
+    # im lặng nếu import/đăng ký không thành công
+    pass
+class Golem02(PatrolEnemy):
+    def __init__(self, x,y, **kw):
+        super().__init__(x,y, folder_base=..., patrol_range=..., speed=40)
+        self.max_hp = 120
+        self.attack_damage = 20
+class Golem03(PatrolEnemy):
+    def __init__(self, x,y, **kw):
+        super().__init__(x,y, folder_base=..., patrol_range=..., speed=60)
+        self.max_hp = 150
+        self.attack_damage = 25
