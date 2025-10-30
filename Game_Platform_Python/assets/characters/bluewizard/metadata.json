@@ -3,10 +3,10 @@
   "name": "Blue Wizard",
   "scale": 1.25,
   "frames": {
-    "idle": "D:/LapTrinh_Python/Python_Game/BlueWizard/2BlueWizardIdle",
-    "walk": "D:/LapTrinh_Python/Python_Game/BlueWizard/2BlueWizardWalk",
-    "jump": "D:/LapTrinh_Python/Python_Game/BlueWizard/2BlueWizardJump",
-    "dash": "D:/LapTrinh_Python/Python_Game/BlueWizard/2BlueWizardJump/Dash2"
+    "idle": "../BlueWizard/2BlueWizardIdle",
+    "walk": "../BlueWizard/2BlueWizardWalk",
+    "jump": "../BlueWizard/2BlueWizardJump",
+    "dash": "../BlueWizard/2BlueWizardJump/Dash2"
   },
   "skills": [
     {"id": "dash", "params": {"cooldown": 1.0, "duration": 0.18, "speed_multiplier": 3.0}},
