@@ -60,9 +60,6 @@ class DashSkill(SkillBase):
         try:
             owner.state = 'dash'
             owner.current_frame = 0
-            # Debug: report whether dash frames are available
-            dash_frames = owner.animations.get('dash', []) if hasattr(owner, 'animations') else []
-            print(f"DashSkill.use: activated for owner; dash frames={len(dash_frames)}")
         except Exception:
             pass
         return True
@@ -86,7 +83,6 @@ class DashSkill(SkillBase):
                 owner.current_frame = 0
             except Exception:
                 pass
-            print("DashSkill.update: dash ended for owner")
 
 
 # Register built-in skills
