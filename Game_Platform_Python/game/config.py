@@ -8,7 +8,7 @@ FPS = 120
 GRAVITY = 2
 JUMP_POWER = -70
 SPEED = 30
-ZOOM = 0.4   # <--- 1.0 = bình thường, nhỏ hơn = nhìn xa, lớn hơn = zoom gần
+ZOOM = 0.4  # <--- 1.0 = bình thường, nhỏ hơn = nhìn xa, lớn hơn = zoom gần
 PLAYER_SCALE = 1.25  # scale nhân vật (1.0 = kích thước gốc)
 
 # Khoảng inset (px) để thu nhỏ hitbox của mỗi tile.
