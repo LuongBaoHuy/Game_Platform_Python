@@ -288,6 +288,39 @@ def main():
                 except Exception:
                     pass
 
+                # Draw charge UI if player is currently charging (holding L)
+                try:
+                    charge_skill = getattr(player, 'skills', {}).get('charge')
+                    if getattr(player, '_is_charging', False):
+                        now = pygame.time.get_ticks() / 1000.0
+                        held = now - getattr(player, '_charge_start', now)
+                        max_charge = getattr(charge_skill, 'max_charge', 3.0) if charge_skill is not None else 3.0
+                        pct = max(0.0, min(1.0, held / float(max_charge)))
+                        cbar_x = bar_x
+                        cbar_y = bar_y + bar_h + 8
+                        cbar_w = bar_w
+                        cbar_h = 12
+                        pygame.draw.rect(screen, (40, 40, 40), (cbar_x, cbar_y, cbar_w, cbar_h))
+                        fill_w = int(cbar_w * pct)
+                        if fill_w > 0:
+                            pygame.draw.rect(screen, (120, 200, 255), (cbar_x, cbar_y, fill_w, cbar_h))
+                        pygame.draw.rect(screen, (0, 0, 0), (cbar_x, cbar_y, cbar_w, cbar_h), 2)
+                        # percentage text
+                        try:
+                            pct_label = font.render(f"Charge: {int(pct * 100)}%", True, (255, 255, 255))
+                            pct_rect = pct_label.get_rect(center=(cbar_x + cbar_w // 2, cbar_y + cbar_h // 2))
+                            screen.blit(pct_label, pct_rect)
+                        except Exception:
+                            pass
+                        # extra visible hint in case frames/skill aren't attached
+                        try:
+                            hint = font.render("Charging...", True, (180, 220, 255))
+                            screen.blit(hint, (cbar_x, cbar_y - 22))
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
             px = int(player.rect.centerx)
             py = int(player.rect.centery)
             coord_text = font.render(f"Pos: x={px} y={py}", True, (0, 0, 0))

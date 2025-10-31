@@ -61,6 +61,22 @@ class Player:
         # skill_timers dùng cho legacy implementation; SkillBase subclasses có thể
         # quản lý timer riêng trong instance của chúng.
         self.skill_timers = {}
+        # Charging state for hold-to-charge skill (L)
+        self._is_charging = False
+        self._charge_start = 0.0
+
+        # Attach a default ChargeSkill instance if available
+        try:
+            from game.characters.skills import ChargeSkill
+            # default frames_path points to repo-relative assets/skill-effect
+            try:
+                # Prefer the specific purple_skill folder and ensure large scale
+                self.skills['charge'] = ChargeSkill(frames_path=os.path.join('assets', 'skill-effect', 'purple_skill'), base_speed=1200, base_damage=30, max_charge=3.0, scale=10.0)
+            except Exception:
+                # if instantiation fails, skip
+                pass
+        except Exception:
+            pass
 
     def load_frames(self, folder, size):
         frames = []
@@ -146,6 +162,45 @@ class Player:
             self.on_ground = False
             self.state = "jump"
             self.current_frame = 0
+
+        # Charge key (L) - hold to charge, release to fire
+        charge_skill = self.skills.get('charge')
+        if keys[pygame.K_l]:
+            # start charging on first frame of press
+            if not self._is_charging:
+                # Ensure a ChargeSkill instance exists (attach dynamically if factory didn't)
+                if charge_skill is None:
+                    try:
+                        from game.characters.skills import ChargeSkill
+                        # explicitly point to purple_skill frames and use large scale
+                        inst = ChargeSkill(frames_path=os.path.join('assets', 'skill-effect', 'purple_skill'), base_speed=1200, base_damage=30, max_charge=3.0, scale=20.0)
+                        self.skills['charge'] = inst
+                        charge_skill = inst
+                    except Exception:
+                        charge_skill = None
+
+                self._is_charging = True
+                self._charge_start = pygame.time.get_ticks() / 1000.0
+                # notify skill instance if it supports begin()
+                if SkillBase is not None and not isinstance(charge_skill, dict) and hasattr(charge_skill, 'begin') and charge_skill is not None:
+                    try:
+                        charge_skill.begin(self._charge_start, self)
+                    except Exception:
+                        pass
+        else:
+            # if was charging and key released -> fire
+            if self._is_charging:
+                now = pygame.time.get_ticks() / 1000.0
+                held = now - self._charge_start
+                self._is_charging = False
+                # ensure we have a skill instance (might have been attached dynamically earlier)
+                if charge_skill is None:
+                    charge_skill = self.skills.get('charge')
+                if SkillBase is not None and not isinstance(charge_skill, dict) and hasattr(charge_skill, 'release') and charge_skill is not None:
+                    try:
+                        charge_skill.release(now, self, held)
+                    except Exception:
+                        pass
 
         # Không ghi đè state nếu đang dash, để dash animation có thể chạy
         # Dùng dash_active (đã tính toán ở trên) để tránh KeyError khi c.skills không có 'dash'
@@ -299,3 +354,15 @@ class Player:
                     s.draw(surface, camera_x, camera_y)
                 except Exception:
                     pass
+
+        # Draw a small charging indicator above the player if holding L
+        try:
+            if getattr(self, '_is_charging', False):
+                cx = int(self.rect.centerx - camera_x)
+                cy = int(self.rect.top - camera_y - 10)
+                # small translucent circle
+                surf = pygame.Surface((40, 40), pygame.SRCALPHA)
+                pygame.draw.circle(surf, (120, 200, 255, 160), (20, 20), 14)
+                surface.blit(surf, (cx - 20, cy - 20))
+        except Exception:
+            pass
