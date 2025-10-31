@@ -13,6 +13,7 @@ except Exception:
     list_characters = lambda: []
 from game.menu import draw_menu
 from game.enemy import PatrolEnemy
+
 # Try to import enemy registry helpers (optional)
 try:
     from game.enemy_registry import create_enemy, list_enemies as list_enemy_ids
@@ -102,7 +103,7 @@ def main():
     enemies = []
     # Determine possible enemy ids from registry (if available)
     if create_enemy:
-        enemy_ids = list_enemy_ids() or ['golem_02', 'golem_03']
+        enemy_ids = list_enemy_ids() or ["golem_02", "golem_03"]
         for i in range(ENEMY_COUNT):
             ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
             ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
@@ -175,10 +176,50 @@ def main():
         render_w = int(WIDTH / ZOOM)
         render_h = int(HEIGHT / ZOOM)
         render_surface = pygame.Surface((render_w, render_h))
-        render_surface.fill((135, 206, 235))
 
-        camera_x = player.rect.centerx - render_w // 2
-        camera_y = player.rect.centery - render_h // 2
+        # Compute map pixel size. Prefer tmx_data (if available). Fallback to
+        # bounding box of platforms if tmx_data isn't present.
+        try:
+            map_w = int(tmx_data.width * tmx_data.tilewidth)
+            map_h = int(tmx_data.height * tmx_data.tileheight)
+        except Exception:
+            # Fallback: derive from platforms geometry
+            try:
+                min_x = min((r.left for _, r in platforms))
+                min_y = min((r.top for _, r in platforms))
+                max_x = max((r.right for _, r in platforms))
+                max_y = max((r.bottom for _, r in platforms))
+                map_w = max_x - min_x
+                map_h = max_y - min_y
+            except Exception:
+                # Ultimate fallback: treat map as large so clamping is a no-op
+                map_w = render_w * 10
+                map_h = render_h * 10
+
+        # Camera center requested
+        desired_cam_x = player.rect.centerx - render_w // 2
+        desired_cam_y = player.rect.centery - render_h // 2
+
+        # Clamp camera so it doesn't go outside the map. If the map is smaller
+        # than the render area, max_camera will be 0 and camera stays at 0
+        max_camera_x = max(0, map_w - render_w)
+        max_camera_y = max(0, map_h - render_h)
+
+        camera_x = max(0, min(desired_cam_x, max_camera_x))
+        camera_y = max(0, min(desired_cam_y, max_camera_y))
+
+        # Fill whole render surface black (area outside map will remain black)
+        render_surface.fill((0, 0, 0))
+
+        # Draw sky inside the map area only (so outside map stays black).
+        # The map is at world coords starting at (0,0); relative to camera its
+        # top-left is (-camera_x, -camera_y).
+        try:
+            sky_rect = pygame.Rect(-camera_x, -camera_y, map_w, map_h)
+            pygame.draw.rect(render_surface, (135, 206, 235), sky_rect)
+        except Exception:
+            # If drawing sky fails for any reason, we silently continue with black background
+            pass
 
         for tile_img, rect in platforms:
             if (
@@ -255,7 +296,7 @@ def main():
                 # Only update enemy AI when player is alive; otherwise keep them frozen
                 if getattr(player, "alive", True):
                     e.update(dt, nearby_platforms, player)
-                
+
                 e.draw(render_surface, camera_x, camera_y, show_hitboxes)
             else:
                 # Nếu ở xa, bỏ qua update nặng; vẫn có thể áp dụng một cập nhật tối giản
@@ -329,25 +370,41 @@ def main():
 
                 # Draw charge UI if player is currently charging (holding L)
                 try:
-                    charge_skill = getattr(player, 'skills', {}).get('charge')
-                    if getattr(player, '_is_charging', False):
+                    charge_skill = getattr(player, "skills", {}).get("charge")
+                    if getattr(player, "_is_charging", False):
                         now = pygame.time.get_ticks() / 1000.0
-                        held = now - getattr(player, '_charge_start', now)
-                        max_charge = getattr(charge_skill, 'max_charge', 3.0) if charge_skill is not None else 3.0
+                        held = now - getattr(player, "_charge_start", now)
+                        max_charge = (
+                            getattr(charge_skill, "max_charge", 3.0)
+                            if charge_skill is not None
+                            else 3.0
+                        )
                         pct = max(0.0, min(1.0, held / float(max_charge)))
                         cbar_x = bar_x
                         cbar_y = bar_y + bar_h + 8
                         cbar_w = bar_w
                         cbar_h = 12
-                        pygame.draw.rect(screen, (40, 40, 40), (cbar_x, cbar_y, cbar_w, cbar_h))
+                        pygame.draw.rect(
+                            screen, (40, 40, 40), (cbar_x, cbar_y, cbar_w, cbar_h)
+                        )
                         fill_w = int(cbar_w * pct)
                         if fill_w > 0:
-                            pygame.draw.rect(screen, (120, 200, 255), (cbar_x, cbar_y, fill_w, cbar_h))
-                        pygame.draw.rect(screen, (0, 0, 0), (cbar_x, cbar_y, cbar_w, cbar_h), 2)
+                            pygame.draw.rect(
+                                screen,
+                                (120, 200, 255),
+                                (cbar_x, cbar_y, fill_w, cbar_h),
+                            )
+                        pygame.draw.rect(
+                            screen, (0, 0, 0), (cbar_x, cbar_y, cbar_w, cbar_h), 2
+                        )
                         # percentage text
                         try:
-                            pct_label = font.render(f"Charge: {int(pct * 100)}%", True, (255, 255, 255))
-                            pct_rect = pct_label.get_rect(center=(cbar_x + cbar_w // 2, cbar_y + cbar_h // 2))
+                            pct_label = font.render(
+                                f"Charge: {int(pct * 100)}%", True, (255, 255, 255)
+                            )
+                            pct_rect = pct_label.get_rect(
+                                center=(cbar_x + cbar_w // 2, cbar_y + cbar_h // 2)
+                            )
                             screen.blit(pct_label, pct_rect)
                         except Exception:
                             pass
