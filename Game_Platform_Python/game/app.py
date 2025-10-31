@@ -157,6 +157,9 @@ def main():
         # we'll still draw the last frame and show the death overlay while
         # listening for R/Q to respawn or quit.
         if getattr(player, "alive", True):
+            # Update mana regeneration
+            player.update_mana(dt)
+
             player.handle_input()
             # update skills with delta seconds (e.g. dash)
             if hasattr(player, "update_skills"):
@@ -332,20 +335,36 @@ def main():
 
         # Hiển thị thanh HP đồ họa và tọa độ người chơi (world coordinates)
         try:
-            # Player HP bar: top-left, 200x18
+            # Player HP bar: fixed position at bottom center
             if (
                 hasattr(player, "hp")
                 and hasattr(player, "max_hp")
                 and player.max_hp > 0
             ):
-                bar_x = 10
-                bar_y = 70
-                bar_w = 200
-                bar_h = 18
-                # background
+                # Larger bars with fixed position at bottom
+                bar_w = 400  # Wider bar
+                bar_h = 25  # Taller bar
+                bar_x = WIDTH // 2 - bar_w // 2  # Center horizontally
+                bar_y = HEIGHT - 100  # Fixed distance from bottom
+
+                # Draw black background for better visibility
+                bg_padding = 4
+                pygame.draw.rect(
+                    screen,
+                    (0, 0, 0),
+                    (
+                        bar_x - bg_padding,
+                        bar_y - bg_padding,
+                        bar_w + bg_padding * 2,
+                        bar_h + bg_padding * 2,
+                    ),
+                )
+
+                # HP bar background
                 pygame.draw.rect(screen, (80, 80, 80), (bar_x, bar_y, bar_w, bar_h))
                 pct = max(0.0, min(1.0, float(player.hp) / float(player.max_hp)))
                 fill_w = int(bar_w * pct)
+
                 # color lerp: red -> yellow -> green
                 if pct > 0.6:
                     col = (50, 205, 50)
@@ -353,67 +372,108 @@ def main():
                     col = (255, 200, 0)
                 else:
                     col = (220, 30, 30)
+
                 if fill_w > 0:
                     pygame.draw.rect(screen, col, (bar_x, bar_y, fill_w, bar_h))
-                pygame.draw.rect(screen, (0, 0, 0), (bar_x, bar_y, bar_w, bar_h), 2)
-                # numeric text inside bar
+                pygame.draw.rect(
+                    screen, (255, 255, 255), (bar_x, bar_y, bar_w, bar_h), 2
+                )
+
+                # numeric text inside bar with larger font
                 try:
-                    hp_label = font.render(
-                        f"{int(player.hp)}/{int(player.max_hp)}", True, (0, 0, 0)
+                    hp_font = pygame.font.SysFont("Arial", 20)  # Larger font
+                    hp_label = hp_font.render(
+                        f"{int(player.hp)}/{int(player.max_hp)}", True, (255, 255, 255)
                     )
                     lbl_rect = hp_label.get_rect(
                         center=(bar_x + bar_w // 2, bar_y + bar_h // 2)
                     )
+                    # Draw text with black outline for better visibility
+                    outline_color = (0, 0, 0)
+                    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        screen.blit(hp_label, (lbl_rect.x + dx, lbl_rect.y + dy))
                     screen.blit(hp_label, lbl_rect)
                 except Exception:
                     pass
 
-                # Draw charge UI if player is currently charging (holding L)
+                # Always draw mana bar
                 try:
-                    charge_skill = getattr(player, "skills", {}).get("charge")
+                    # Calculate mana percentage based on current mana or charging state
                     if getattr(player, "_is_charging", False):
+                        # When charging, show decreasing energy
                         now = pygame.time.get_ticks() / 1000.0
                         held = now - getattr(player, "_charge_start", now)
+                        charge_skill = getattr(player, "skills", {}).get("charge")
                         max_charge = (
                             getattr(charge_skill, "max_charge", 3.0)
                             if charge_skill is not None
                             else 3.0
                         )
-                        pct = max(0.0, min(1.0, held / float(max_charge)))
-                        cbar_x = bar_x
-                        cbar_y = bar_y + bar_h + 8
-                        cbar_w = bar_w
-                        cbar_h = 12
+                        pct = 1.0 - max(0.0, min(1.0, held / float(max_charge)))
+                    else:
+                        # When not charging, show current mana
+                        pct = float(player.mana) / float(player.max_mana)
+
+                    # Energy/Mana bar with same width but smaller height
+                    cbar_w = bar_w
+                    cbar_h = 20  # Slightly smaller than HP bar
+                    cbar_x = bar_x
+                    cbar_y = bar_y + bar_h + 4  # Closer to HP bar
+
+                    # Black background for energy bar
+                    pygame.draw.rect(
+                        screen,
+                        (0, 0, 0),
+                        (
+                            cbar_x - bg_padding,
+                            cbar_y - bg_padding,
+                            cbar_w + bg_padding * 2,
+                            cbar_h + bg_padding * 2,
+                        ),
+                    )
+
+                    # Energy bar background
+                    pygame.draw.rect(
+                        screen, (40, 40, 40), (cbar_x, cbar_y, cbar_w, cbar_h)
+                    )
+                    fill_w = int(cbar_w * pct)
+                    if fill_w > 0:
                         pygame.draw.rect(
-                            screen, (40, 40, 40), (cbar_x, cbar_y, cbar_w, cbar_h)
+                            screen,
+                            (0, 128, 255),  # Bright blue for energy
+                            (cbar_x, cbar_y, fill_w, cbar_h),
                         )
-                        fill_w = int(cbar_w * pct)
-                        if fill_w > 0:
-                            pygame.draw.rect(
+                    pygame.draw.rect(
+                        screen, (255, 255, 255), (cbar_x, cbar_y, cbar_w, cbar_h), 2
+                    )
+
+                    # Draw mana text
+                    try:
+                        energy_font = pygame.font.SysFont("Arial", 18)
+                        if getattr(player, "_is_charging", False):
+                            mana_text = f"ENERGY {int(pct * 100)}%"
+                            # Add charging indicator
+                            pygame.draw.circle(
                                 screen,
-                                (120, 200, 255),
-                                (cbar_x, cbar_y, fill_w, cbar_h),
+                                (0, 128, 255),
+                                (cbar_x + cbar_w + 20, cbar_y + cbar_h // 2),
+                                6,
                             )
-                        pygame.draw.rect(
-                            screen, (0, 0, 0), (cbar_x, cbar_y, cbar_w, cbar_h), 2
+                        else:
+                            mana_text = (
+                                f"ENERGY {int(player.mana)}/{int(player.max_mana)}"
+                            )
+
+                        pct_label = energy_font.render(mana_text, True, (255, 255, 255))
+                        pct_rect = pct_label.get_rect(
+                            center=(cbar_x + cbar_w // 2, cbar_y + cbar_h // 2)
                         )
-                        # percentage text
-                        try:
-                            pct_label = font.render(
-                                f"Charge: {int(pct * 100)}%", True, (255, 255, 255)
-                            )
-                            pct_rect = pct_label.get_rect(
-                                center=(cbar_x + cbar_w // 2, cbar_y + cbar_h // 2)
-                            )
-                            screen.blit(pct_label, pct_rect)
-                        except Exception:
-                            pass
-                        # extra visible hint in case frames/skill aren't attached
-                        try:
-                            hint = font.render("Charging...", True, (180, 220, 255))
-                            screen.blit(hint, (cbar_x, cbar_y - 22))
-                        except Exception:
-                            pass
+                        # Draw text with black outline
+                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            screen.blit(pct_label, (pct_rect.x + dx, pct_rect.y + dy))
+                        screen.blit(pct_label, pct_rect)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
