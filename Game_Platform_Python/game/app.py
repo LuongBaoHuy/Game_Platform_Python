@@ -40,7 +40,7 @@ def main():
         HITBOX_RIGHT_INSET,
     )
     platforms, _, map_objects = load_map(
-        "D:/Game_Platform_Python-main/Game_Platform_Python-main/Game_Platform_Python/assets/maps/Map_test.tmx",
+        "D:/LapTrinh_Python/Test/Game_Platform_Python/Game_Platform_Python/assets/maps/Map_test.tmx",
         hitbox_inset=HITBOX_INSET,
         top_inset=HITBOX_TOP_INSET,
         bottom_inset=HITBOX_BOTTOM_INSET,
