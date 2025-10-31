@@ -5,6 +5,9 @@ from typing import List
 from game.characters.base import Character
 from game.characters.registry import get_skill
 
+# Animation cache để tránh load lại sprite nhiều lần
+_animation_cache = {}
+
 
 def _list_character_dirs(base_path: str) -> List[str]:
     if not os.path.isdir(base_path):
@@ -32,7 +35,17 @@ def create_player(char_id: str, x: int, y: int) -> Character:
     # try to read metadata
     # repo_root = parent of 'game' directory (project root)
     repo_root = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
-    assets_chars = os.path.join(repo_root, 'assets', 'characters', char_id)
+    
+    # Find character folder case-insensitively (Windows: Golem_02 vs golem_02)
+    chars_root = os.path.join(repo_root, 'assets', 'characters')
+    actual_char_folder = char_id
+    if os.path.isdir(chars_root):
+        for folder_name in os.listdir(chars_root):
+            if folder_name.lower() == char_id.lower() and os.path.isdir(os.path.join(chars_root, folder_name)):
+                actual_char_folder = folder_name
+                break
+    
+    assets_chars = os.path.join(repo_root, 'assets', 'characters', actual_char_folder)
     meta_path = os.path.join(assets_chars, 'metadata.json')
 
     meta = {}
@@ -49,6 +62,22 @@ def create_player(char_id: str, x: int, y: int) -> Character:
         sprite_path = os.path.normpath(os.path.join(repo_root, sprite_path))
     scale = meta.get('scale', 1.0)
     frames_map = meta.get('frames', {}) if isinstance(meta.get('frames', {}), dict) else {}
+    
+    # Resolve frames_map paths to absolute paths before passing to Player
+    resolved_frames = {}
+    for state_name, folder in frames_map.items():
+        if folder:
+            candidates = [
+                folder,  # if absolute
+                os.path.join(repo_root, folder),  # relative to repo root
+                os.path.join(assets_chars, folder),  # relative to assets_chars
+                os.path.join(sprite_path or assets_chars, folder),  # relative to sprite_path
+            ]
+            for cand in candidates:
+                cand = os.path.normpath(cand)
+                if os.path.isdir(cand):
+                    resolved_frames[state_name] = cand
+                    break
 
     # Tạo instance Player (nếu có) để giữ nguyên logic input/move/animation.
     # Import Player lazily to avoid circular import at module import time.
@@ -61,7 +90,7 @@ def create_player(char_id: str, x: int, y: int) -> Character:
     if GamePlayer is not None:
         # Pass sprite/frames/scale to Player when possible so it can load frames itself
         try:
-            c = GamePlayer(x, y, sprite_path=sprite_path, frames_map=frames_map or {}, scale=scale)
+            c = GamePlayer(x, y, sprite_path=sprite_path, frames_map=resolved_frames or {}, scale=scale)
         except Exception:
             # Fallback to simple ctor if signature differs
             try:
@@ -113,16 +142,25 @@ def create_player(char_id: str, x: int, y: int) -> Character:
         for cand in candidates:
             cand = os.path.normpath(cand)
             if os.path.isdir(cand):
-                return c.load_frames(cand, sprite_size)
+                # Check cache first
+                cache_key = (cand, sprite_size[0], sprite_size[1])
+                if cache_key in _animation_cache:
+                    return _animation_cache[cache_key]
+                # Load and cache
+                frames = c.load_frames(cand, sprite_size)
+                _animation_cache[cache_key] = frames
+                return frames
 
-        # If nothing found, print debug hint and return empty
-        print(f"factory.create_player: no frames for '{state_name}' (tried: {candidates})")
+        # If nothing found, return empty
         return []
 
     c.animations['idle'] = _load_state('idle')
     c.animations['walk'] = _load_state('walk')
     c.animations['jump'] = _load_state('jump')
-    # dash is optional
+    # dash, attack, hurt, dying are optional
     c.animations['dash'] = _load_state('dash')
+    c.animations['attack'] = _load_state('attack')
+    c.animations['hurt'] = _load_state('hurt')
+    c.animations['dying'] = _load_state('dying')
 
     return c

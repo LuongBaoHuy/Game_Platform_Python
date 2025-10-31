@@ -12,6 +12,12 @@ except Exception:
     list_characters = lambda: []
 from game.menu import draw_menu
 from game.enemy import PatrolEnemy
+# Try to import enemy registry helpers (optional)
+try:
+    from game.enemy_registry import create_enemy, list_enemies as list_enemy_ids
+except Exception:
+    create_enemy = None
+    list_enemy_ids = lambda: []
 
 
 # ===============================
@@ -33,11 +39,8 @@ def main():
         HITBOX_LEFT_INSET,
         HITBOX_RIGHT_INSET,
     )
-    # Build map path relative to the project root to avoid absolute paths
-    repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), '..'))
-    map_path = os.path.join(repo_root, 'assets', 'maps', 'Map_test.tmx')
-    platforms, tmx_data, map_objects = load_map(
-        map_path,
+    platforms, _, map_objects = load_map(
+        "D:/LapTrinh_Python/Test/Game_Platform_Python/Game_Platform_Python/assets/maps/Map_test.tmx",
         hitbox_inset=HITBOX_INSET,
         top_inset=HITBOX_TOP_INSET,
         bottom_inset=HITBOX_BOTTOM_INSET,
@@ -88,10 +91,25 @@ def main():
     ENEMY_COUNT = 12  # default number of enemies to spawn
 
     enemies = []
-    for i in range(ENEMY_COUNT):
-        ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
-        ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
-        enemies.append(PatrolEnemy(ex, ey))
+    # Determine possible enemy ids from registry (if available)
+    if create_enemy:
+        enemy_ids = list_enemy_ids() or ['golem_02', 'golem_03']
+        for i in range(ENEMY_COUNT):
+            ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
+            ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
+            eid = random.choice(enemy_ids)
+            try:
+                inst = create_enemy(eid, ex, ey)
+                enemies.append(inst)
+            except Exception:
+                # fallback to simple patrol enemy if creation fails
+                enemies.append(PatrolEnemy(ex, ey))
+    else:
+        # fallback: spawn classic PatrolEnemy instances
+        for i in range(ENEMY_COUNT):
+            ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
+            ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
+            enemies.append(PatrolEnemy(ex, ey))
     show_hitboxes = False  # Toggle hiển thị hitbox của từng bức tường (phím H)
 
     running = True
@@ -148,25 +166,10 @@ def main():
         render_w = int(WIDTH / ZOOM)
         render_h = int(HEIGHT / ZOOM)
         render_surface = pygame.Surface((render_w, render_h))
-        # Fill outside-of-map area with black so anything beyond map bounds is black
-        render_surface.fill((0, 0, 0))
+        render_surface.fill((135, 206, 235))
 
         camera_x = player.rect.centerx - render_w // 2
         camera_y = player.rect.centery - render_h // 2
-        # Clamp camera to TMX bounds so we don't show beyond the map
-        try:
-            map_px_w = tmx_data.width * tmx_data.tilewidth
-            map_px_h = tmx_data.height * tmx_data.tileheight
-            camera_x = max(0, min(camera_x, max(0, map_px_w - render_w)))
-            camera_y = max(0, min(camera_y, max(0, map_px_h - render_h)))
-
-            # After black fill, paint a sky background ONLY inside map bounds
-            # so outside remains black.
-            sky_color = (135, 206, 235)
-            bg_rect = pygame.Rect(-camera_x, -camera_y, map_px_w, map_px_h)
-            pygame.draw.rect(render_surface, sky_color, bg_rect)
-        except Exception:
-            pass
 
         for tile_img, rect in platforms:
             if rect.right > camera_x and rect.left < camera_x + render_w and \
@@ -229,6 +232,7 @@ def main():
                 # Only update enemy AI when player is alive; otherwise keep them frozen
                 if getattr(player, 'alive', True):
                     e.update(dt, nearby_platforms, player)
+                
                 e.draw(render_surface, camera_x, camera_y, show_hitboxes)
             else:
                 # Nếu ở xa, bỏ qua update nặng; vẫn có thể áp dụng một cập nhật tối giản

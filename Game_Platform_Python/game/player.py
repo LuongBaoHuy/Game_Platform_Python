@@ -80,9 +80,8 @@ class Player:
 
     def load_frames(self, folder, size):
         frames = []
-        # If folder doesn't exist, return empty list and print helpful message
+        # If folder doesn't exist, return empty list
         if not os.path.isdir(folder):
-            print(f"Player.load_frames: folder not found: {folder}")
             return frames
         for filename in sorted(os.listdir(folder)):
             if filename.endswith(".png"):
@@ -301,9 +300,6 @@ class Player:
         if self.hp <= 0:
             self.hp = 0
             self.alive = False
-            print(f"Player: died")
-        else:
-            print(f"Player: took {amount} damage, hp={self.hp}/{self.max_hp}")
 
     def update_skills(self, dt):
         # dt in seconds

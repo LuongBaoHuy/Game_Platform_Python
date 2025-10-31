@@ -1,0 +1,14 @@
+{
+  "id": "minotaur_01",
+  "name": "Minotaur 01",
+  "scale": 1.2,
+  "frames": {
+    "idle": "PNG Sequences/Idle",
+    "walk": "PNG Sequences/Walking",
+    "jump": "PNG Sequences/Jump Loop",
+    "attack": "PNG Sequences/Attacking",
+    "dying": "PNG Sequences/Dying",
+    "hurt": "PNG Sequences/Hurt"
+  },
+  "skills": []
+}

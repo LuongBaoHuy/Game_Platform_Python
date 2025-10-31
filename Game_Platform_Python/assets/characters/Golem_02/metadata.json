@@ -1,0 +1,14 @@
+{
+  "id": "golem_02",
+  "name": "Golem 02",
+  "scale": 1.0,
+  "frames": {
+    "idle": "PNG Sequences/Idle",
+    "walk": "PNG Sequences/Walking",
+    "jump": "PNG Sequences/Jump Loop",
+    "attack": "PNG Sequences/Attacking",
+    "dying": "PNG Sequences/Dying",
+    "hurt": "PNG Sequences/Hurt"
+  },
+  "skills": []
+}
