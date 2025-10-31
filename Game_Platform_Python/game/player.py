@@ -63,6 +63,9 @@ class Player:
         self.alive = True
         self.can_use_skills = True  # Flag to control skill usage
 
+        # Skill direction system
+        self.shoot_direction = {"x": 0, "y": 0}  # Direction vector for skills
+
         # Skills: có thể là legacy dict (như trước) hoặc các instance SkillBase
         # Nếu factory gắn skill (SkillBase) thì self.skills sẽ chứa các instance
         # Ví dụ dạng legacy: self.skills = {"dash": {"cooldown":..., ...}}
@@ -129,6 +132,20 @@ class Player:
     def handle_input(self):
         keys = pygame.key.get_pressed()
         moving = False
+        
+        # Update shooting direction based on movement keys
+        self.shoot_direction["x"] = 0
+        self.shoot_direction["y"] = 0
+        if keys[pygame.K_w]:  # Up
+            self.shoot_direction["y"] = -1
+        if keys[pygame.K_s]:  # Down
+            self.shoot_direction["y"] = 1
+        if keys[pygame.K_d]:  # Right
+            self.shoot_direction["x"] = 1
+            self.facing_right = True
+        if keys[pygame.K_a]:  # Left
+            self.shoot_direction["x"] = -1
+            self.facing_right = False
         # Nếu đang dash thì không override vel_x từ input
         # Hỗ trợ cả 2 hệ thống skill:
         # - Nếu skill là object (SkillBase) dùng thuộc tính .active

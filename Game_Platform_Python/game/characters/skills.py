@@ -19,7 +19,7 @@ class SkillBase:
 
     def __init__(self, **params):
         self.params = params
-        self.cooldown = params.get('cooldown', 0.0)
+        self.cooldown = params.get("cooldown", 0.0)
         self.last_used = -999.0
         self.active = False
 
@@ -41,7 +41,12 @@ class SkillBase:
 
 class DashSkill(SkillBase):
     def __init__(self, cooldown=1.0, duration=0.18, speed_multiplier=3.0, **kwargs):
-        super().__init__(cooldown=cooldown, duration=duration, speed_multiplier=speed_multiplier, **kwargs)
+        super().__init__(
+            cooldown=cooldown,
+            duration=duration,
+            speed_multiplier=speed_multiplier,
+            **kwargs
+        )
         self.duration = duration
         self.speed_multiplier = speed_multiplier
         self.time_left = 0.0
@@ -55,10 +60,14 @@ class DashSkill(SkillBase):
             owner.vel_x = owner.vel_x * self.speed_multiplier
         else:
             # If owner was stationary, apply a dash in facing direction
-            owner.vel_x = SPEED * self.speed_multiplier if getattr(owner, 'facing_right', True) else -SPEED * self.speed_multiplier
+            owner.vel_x = (
+                SPEED * self.speed_multiplier
+                if getattr(owner, "facing_right", True)
+                else -SPEED * self.speed_multiplier
+            )
         # Set owner state to dash so animation plays
         try:
-            owner.state = 'dash'
+            owner.state = "dash"
             owner.current_frame = 0
         except Exception:
             pass
@@ -74,29 +83,33 @@ class DashSkill(SkillBase):
             owner.vel_x = 0
             # restore state (basic heuristic)
             try:
-                if not getattr(owner, 'on_ground', True):
-                    owner.state = 'jump'
-                elif getattr(owner, 'vel_x', 0) != 0:
-                    owner.state = 'walk'
+                if not getattr(owner, "on_ground", True):
+                    owner.state = "jump"
+                elif getattr(owner, "vel_x", 0) != 0:
+                    owner.state = "walk"
                 else:
-                    owner.state = 'idle'
+                    owner.state = "idle"
                 owner.current_frame = 0
             except Exception:
                 pass
 
 
 # Register built-in skills
-registry.register_skill('dash', DashSkill)
+registry.register_skill("dash", DashSkill)
 
 import os
 import pygame
 
 # Helper to find project root for default asset locations
-_REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
+_REPO_ROOT = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..")
+)
 
 
 class Projectile:
-    def __init__(self, x, y, vx, vy, frames, lifetime=1.5, damage=25, owner=None, scale=1.0):
+    def __init__(
+        self, x, y, vx, vy, frames, lifetime=1.5, damage=25, owner=None, scale=1.0
+    ):
         self.x = x
         self.y = y
         self.vx = vx
@@ -133,7 +146,12 @@ class Projectile:
             surf, _ = self.frames[0]
             self.rect = surf.get_rect(center=(int(self.x), int(self.y)))
         else:
-            self.rect = pygame.Rect(int(self.x), int(self.y), max(8, int(8 * self.scale)), max(8, int(8 * self.scale)))
+            self.rect = pygame.Rect(
+                int(self.x),
+                int(self.y),
+                max(8, int(8 * self.scale)),
+                max(8, int(8 * self.scale)),
+            )
         self.damage = damage
         self.owner = owner
         # for piercing projectiles we track which enemies we've already hit
@@ -158,7 +176,12 @@ class Projectile:
 
     def draw(self, surface, camera_x=0, camera_y=0):
         if not self.frames:
-            pygame.draw.circle(surface, (128, 0, 255), (int(self.x - camera_x), int(self.y - camera_y)), 6)
+            pygame.draw.circle(
+                surface,
+                (128, 0, 255),
+                (int(self.x - camera_x), int(self.y - camera_y)),
+                6,
+            )
             return
         surf, trim = self.frames[self.current]
         dst = surf.get_rect(center=(int(self.x - camera_x), int(self.y - camera_y)))
@@ -175,7 +198,15 @@ class ProjectileSkill(SkillBase):
       - cooldown
     """
 
-    def __init__(self, frames_path=None, speed=3600, lifetime=1.2, cooldown=0.5, damage=25, **kwargs):
+    def __init__(
+        self,
+        frames_path=None,
+        speed=3600,
+        lifetime=1.2,
+        cooldown=0.5,
+        damage=25,
+        **kwargs
+    ):
         super().__init__(cooldown=cooldown)
         # Keep blast visuals at normal size by default
         self.scale = 1.0
@@ -192,13 +223,15 @@ class ProjectileSkill(SkillBase):
             candidates.append(frames_path)
             candidates.append(os.path.join(_REPO_ROOT, frames_path))
         # default path inside repo
-        candidates.append(os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill'))
+        candidates.append(
+            os.path.join(_REPO_ROOT, "assets", "skill-effect", "purple_skill")
+        )
 
         for cand in candidates:
             cand = os.path.normpath(cand)
             if os.path.isdir(cand):
                 for fn in sorted(os.listdir(cand)):
-                    if fn.lower().endswith('.png'):
+                    if fn.lower().endswith(".png"):
                         img = pygame.image.load(os.path.join(cand, fn)).convert_alpha()
                         frames.append((img, 0))
                 break
@@ -208,16 +241,46 @@ class ProjectileSkill(SkillBase):
     def use(self, now: float, owner) -> bool:
         if not super().use(now, owner):
             return False
-        # spawn projectile in front of owner
+
+        # Get shooting direction from owner
+        dir_x = getattr(owner, "shoot_direction", {}).get("x", 0)
+        dir_y = getattr(owner, "shoot_direction", {}).get("y", 0)
+
+        # If no direction input, use facing direction
+        if dir_x == 0 and dir_y == 0:
+            dir_x = 1 if getattr(owner, "facing_right", True) else -1
+            dir_y = 0
+
+        # Normalize direction vector
+        length = (dir_x * dir_x + dir_y * dir_y) ** 0.5
+        if length > 0:
+            dir_x = dir_x / length
+            dir_y = dir_y / length
+
+        # Calculate velocities
+        vx = dir_x * self.speed
+        vy = dir_y * self.speed
+
+        # Spawn projectile from center of owner
         ox = owner.rect.centerx
         oy = owner.rect.centery
-        dir_x = 1 if getattr(owner, 'facing_right', True) else -1
-        vx = dir_x * self.speed
-        vy = 0
-        # spawn a bit in front
-        spawn_x = ox + dir_x * (owner.rect.width // 2 + 8)
-        spawn_y = oy
-        proj = Projectile(spawn_x, spawn_y, vx, vy, self.frames, lifetime=self.lifetime, damage=self.damage, owner=owner, scale=self.scale)
+
+        # Adjust spawn position based on direction
+        spawn_offset = owner.rect.width // 2 + 8
+        spawn_x = ox + dir_x * spawn_offset
+        spawn_y = oy + dir_y * spawn_offset
+
+        proj = Projectile(
+            spawn_x,
+            spawn_y,
+            vx,
+            vy,
+            self.frames,
+            lifetime=self.lifetime,
+            damage=self.damage,
+            owner=owner,
+            scale=self.scale,
+        )
         self.projectiles.append(proj)
         self.active = True
         self.last_used = now
@@ -246,7 +309,7 @@ class ProjectileSkill(SkillBase):
                 try:
                     if e.rect.colliderect(p.rect):
                         # apply damage
-                        if hasattr(e, 'take_damage'):
+                        if hasattr(e, "take_damage"):
                             e.take_damage(p.damage)
                         hit = True
                         break
@@ -257,7 +320,7 @@ class ProjectileSkill(SkillBase):
         self.projectiles = alive
 
 
-registry.register_skill('blast', ProjectileSkill)
+registry.register_skill("blast", ProjectileSkill)
 
 
 class ChargeSkill(SkillBase):
@@ -268,13 +331,24 @@ class ChargeSkill(SkillBase):
       - release(now, owner, held_time) -> fire projectile with power based on held_time
     """
 
-    def __init__(self, frames_path=None, base_speed=1200, base_damage=30, max_charge=3.0, lifetime=1.5, cooldown=0.2, **kwargs):
+    def __init__(
+        self,
+        frames_path=None,
+        base_speed=1200,
+        base_damage=30,
+        max_charge=3.0,
+        lifetime=1.5,
+        cooldown=0.2,
+        **kwargs
+    ):
         super().__init__(cooldown=cooldown)
         # ChargeSkill visuals default to very large (20x). Can be overridden in metadata via 'scale'.
-        self.scale = float(kwargs.get('scale', 20.0))
+        self.scale = float(kwargs.get("scale", 20.0))
         # If no explicit frames_path provided, prefer the purple_skill subfolder
         if not frames_path:
-            frames_path = os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill')
+            frames_path = os.path.join(
+                _REPO_ROOT, "assets", "skill-effect", "purple_skill"
+            )
         self.frames_path = frames_path
         self.base_speed = base_speed
         self.base_damage = base_damage
@@ -291,16 +365,20 @@ class ChargeSkill(SkillBase):
             candidates.append(frames_path)
             candidates.append(os.path.join(_REPO_ROOT, frames_path))
         # Prefer the purple_skill folder (contains PNG frames). Also try the generic skill-effect folder.
-        candidates.append(os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill'))
-        candidates.append(os.path.join(_REPO_ROOT, 'assets', 'skill-effect'))
+        candidates.append(
+            os.path.join(_REPO_ROOT, "assets", "skill-effect", "purple_skill")
+        )
+        candidates.append(os.path.join(_REPO_ROOT, "assets", "skill-effect"))
 
         for cand in candidates:
             cand = os.path.normpath(cand)
             if os.path.isdir(cand):
                 for fn in sorted(os.listdir(cand)):
-                    if fn.lower().endswith('.png'):
+                    if fn.lower().endswith(".png"):
                         try:
-                            img = pygame.image.load(os.path.join(cand, fn)).convert_alpha()
+                            img = pygame.image.load(
+                                os.path.join(cand, fn)
+                            ).convert_alpha()
                         except Exception:
                             continue
                         frames.append((img, 0))
@@ -322,14 +400,45 @@ class ChargeSkill(SkillBase):
         speed = float(self.base_speed) * mult
         damage = int(self.base_damage * mult)
 
-        dir_x = 1 if getattr(owner, 'facing_right', True) else -1
+        # Get shooting direction from owner
+        dir_x = getattr(owner, "shoot_direction", {}).get("x", 0)
+        dir_y = getattr(owner, "shoot_direction", {}).get("y", 0)
+
+        # If no direction input, use facing direction
+        if dir_x == 0 and dir_y == 0:
+            dir_x = 1 if getattr(owner, "facing_right", True) else -1
+            dir_y = 0
+
+        # Normalize direction vector
+        length = (dir_x * dir_x + dir_y * dir_y) ** 0.5
+        if length > 0:
+            dir_x = dir_x / length
+            dir_y = dir_y / length
+
+        # Calculate velocities
         vx = dir_x * speed
-        vy = 0
+        vy = dir_y * speed
+
+        # Spawn projectile from center of owner
         ox = owner.rect.centerx
         oy = owner.rect.centery
-        spawn_x = ox + dir_x * (owner.rect.width // 2 + 8)
-        spawn_y = oy
-        proj = Projectile(spawn_x, spawn_y, vx, vy, self.frames, lifetime=self.lifetime, damage=damage, owner=owner, scale=self.scale)
+
+        # Adjust spawn position based on direction
+        spawn_offset = owner.rect.width // 2 + 8
+        spawn_x = ox + dir_x * spawn_offset
+        spawn_y = oy + dir_y * spawn_offset
+
+        proj = Projectile(
+            spawn_x,
+            spawn_y,
+            vx,
+            vy,
+            self.frames,
+            lifetime=self.lifetime,
+            damage=damage,
+            owner=owner,
+            scale=self.scale,
+        )
         self.projectiles.append(proj)
         self.active = True
         self.last_used = now
@@ -357,20 +466,19 @@ class ChargeSkill(SkillBase):
                 try:
                     if e.rect.colliderect(p.rect):
                         eid = id(e)
-                        if eid in getattr(p, 'hit_targets', set()):
+                        if eid in getattr(p, "hit_targets", set()):
                             # already damaged this enemy with this projectile
                             continue
-                        if hasattr(e, 'take_damage'):
+                        if hasattr(e, "take_damage"):
                             e.take_damage(p.damage)
                         # record that this projectile has hit this enemy
                         try:
                             p.hit_targets.add(eid)
                         except Exception:
-                            p.hit_targets = getattr(p, 'hit_targets', set())
+                            p.hit_targets = getattr(p, "hit_targets", set())
                             p.hit_targets.add(eid)
                 except Exception:
                     continue
 
 
-registry.register_skill('charge', ChargeSkill)
-
+registry.register_skill("charge", ChargeSkill)
