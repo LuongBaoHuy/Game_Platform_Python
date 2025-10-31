@@ -40,12 +40,12 @@ class SkillBase:
 
 
 class DashSkill(SkillBase):
-    def __init__(self, cooldown=1.0, duration=0.18, speed_multiplier=3.0, **kwargs):
+    def __init__(self, cooldown=1.0, duration=0.8, speed_multiplier=2.5, **kwargs):
         super().__init__(
             cooldown=cooldown,
             duration=duration,
             speed_multiplier=speed_multiplier,
-            **kwargs
+            **kwargs,
         )
         self.duration = duration
         self.speed_multiplier = speed_multiplier
@@ -205,7 +205,7 @@ class ProjectileSkill(SkillBase):
         lifetime=1.2,
         cooldown=0.5,
         damage=25,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(cooldown=cooldown)
         # Keep blast visuals at normal size by default
@@ -339,7 +339,7 @@ class ChargeSkill(SkillBase):
         max_charge=3.0,
         lifetime=1.5,
         cooldown=0.2,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(cooldown=cooldown)
         # ChargeSkill visuals default to very large (20x). Can be overridden in metadata via 'scale'.
@@ -482,3 +482,87 @@ class ChargeSkill(SkillBase):
 
 
 registry.register_skill("charge", ChargeSkill)
+
+
+class CloudSkill(SkillBase):
+    """Skill that allows player to hover in the air briefly."""
+
+    def __init__(self, duration=1.0, cooldown=2.0, **kwargs):
+        super().__init__(cooldown=cooldown)
+        self.duration = duration
+        self.hover_time = 0
+        self.hovering = False
+        self.frozen_pos = None  # Store position when skill activates
+        # Load cloud effect
+        try:
+            cloud_path = os.path.join(_REPO_ROOT, "assets", "icon_skills", "cloud.png")
+            self.cloud_image = pygame.image.load(cloud_path).convert_alpha()
+            # Will scale the cloud image when owner is set
+            self.cloud_image_original = self.cloud_image
+        except Exception as e:
+            print(f"Error loading cloud image: {e}")
+            self.cloud_image = None
+            self.cloud_image_original = None
+
+    def set_owner(self, owner):
+        """Update cloud size based on owner's dimensions"""
+        self.owner = owner
+        if self.cloud_image_original is not None and owner is not None:
+            # Make cloud much larger - about 2x player width and 0.75x player height
+            cloud_width = owner.rect.width * 2.0
+            cloud_height = owner.rect.height * 0.75
+            self.cloud_image = pygame.transform.scale(
+                self.cloud_image_original, (int(cloud_width), int(cloud_height))
+            )
+
+    def can_use(self, now: float) -> bool:
+        # Only allow use while in air and after dash
+        if not super().can_use(now):
+            return False
+        return True
+
+    def use(self, now: float, owner) -> bool:
+        if not super().use(now, owner):
+            return False
+
+        # Store current position and start hovering
+        self.frozen_pos = (owner.rect.x, owner.rect.y)
+        self.hovering = True
+        self.hover_time = self.duration
+        # Reset all velocities
+        owner.vel_x = 0
+        owner.vel_y = 0
+        self.active = True
+
+        # Make sure we have the right cloud size
+        if not hasattr(self, "owner"):
+            self.set_owner(owner)
+        return True
+
+    def update(self, dt: float, owner) -> None:
+        if not self.hovering:
+            return
+
+        self.hover_time -= dt
+        if self.hover_time <= 0:
+            self.hovering = False
+            self.active = False
+            self.frozen_pos = None
+            return
+
+        # Keep player completely still
+        if self.frozen_pos is not None:
+            owner.rect.x = self.frozen_pos[0]
+            owner.rect.y = self.frozen_pos[1]
+            owner.vel_x = 0
+            owner.vel_y = 0
+
+    def draw(self, surface, camera_x=0, camera_y=0):
+        # Draw cloud effect under the player if hovering
+        if self.hovering and hasattr(self, "owner") and self.cloud_image is not None:
+            px = self.owner.rect.centerx - camera_x - self.cloud_image.get_width() // 2
+            py = self.owner.rect.bottom - camera_y - 5  # Position closer to player
+            surface.blit(self.cloud_image, (px, py))
+
+
+registry.register_skill("cloud", CloudSkill)

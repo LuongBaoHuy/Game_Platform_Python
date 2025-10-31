@@ -73,11 +73,15 @@ class Player:
             "dash": {
                 "cooldown": 1.0,
                 "last_used": -999.0,
-                "duration": 0.18,
+                "duration": 0.8,
                 "active": False,
-                "speed_multiplier": 3.0,
+                "speed_multiplier": 2.5,
             }
         }
+
+        # Track jump and dash state for cloud skill
+        self.has_jumped = False
+        self.has_dashed = False
         # skill_timers dùng cho legacy implementation; SkillBase subclasses có thể
         # quản lý timer riêng trong instance của chúng.
         self.skill_timers = {}
@@ -89,7 +93,7 @@ class Player:
         try:
             from game.characters.skills import ChargeSkill
 
-            # default frames_path points to repo-relative assets/skill-effect
+            # Attach a default ChargeSkill instance if available
             try:
                 # Prefer the specific purple_skill folder and ensure large scale
                 self.skills["charge"] = ChargeSkill(
@@ -101,6 +105,19 @@ class Player:
                 )
             except Exception:
                 # if instantiation fails, skip
+                pass
+
+            # Add cloud skill
+            try:
+                from game.characters.skills import CloudSkill
+
+                cloud_skill = CloudSkill()
+                cloud_skill.set_owner(
+                    self
+                )  # This will set the owner and scale the cloud properly
+                self.skills["cloud"] = cloud_skill
+            except Exception as e:
+                print(f"Error creating cloud skill: {e}")
                 pass
         except Exception:
             pass
@@ -132,7 +149,7 @@ class Player:
     def handle_input(self):
         keys = pygame.key.get_pressed()
         moving = False
-        
+
         # Update shooting direction based on movement keys
         self.shoot_direction["x"] = 0
         self.shoot_direction["y"] = 0
@@ -182,12 +199,36 @@ class Player:
             ):
                 # use(now, owner) -> skill có thể căn cứ owner.vel_x để áp lực
                 try:
-                    dash.use(now, self)
+                    if dash.use(now, self):
+                        self.has_dashed = True  # Track that we've dashed
                 except Exception:
                     pass
             else:
                 # fallback sang legacy
-                self.use_skill("dash", now)
+                if self.use_skill("dash", now):
+                    self.has_dashed = True  # Track that we've dashed
+
+        # Cloud Skill (I key) - only when jumped and dashed
+        if (
+            keys[pygame.K_i]
+            and not self.on_ground
+            and self.has_jumped
+            and self.has_dashed
+        ):
+            now = pygame.time.get_ticks() / 1000.0
+            cloud = self.skills.get("cloud")
+            if (
+                SkillBase is not None
+                and not isinstance(cloud, dict)
+                and hasattr(cloud, "use")
+            ):
+                try:
+                    if cloud.use(now, self):
+                        # Reset jump and dash flags after using cloud skill
+                        self.has_jumped = False
+                        self.has_dashed = False
+                except Exception as e:
+                    print(f"Error using cloud skill: {e}")
         # Blast key (J) - chưởng ra
         if keys[pygame.K_j]:
             now = pygame.time.get_ticks() / 1000.0
@@ -210,6 +251,7 @@ class Player:
             self.on_ground = False
             self.state = "jump"
             self.current_frame = 0
+            self.has_jumped = True  # Track that we've jumped
 
         # Use skill key (L) - press to use skill when mana is full
         if keys[pygame.K_l]:
@@ -281,6 +323,9 @@ class Player:
                     self.rect.bottom = plat.top
                     self.vel_y = 0
                     self.on_ground = True
+                    # Reset jump and dash flags when landing
+                    self.has_jumped = False
+                    self.has_dashed = False
                 elif self.vel_y < 0:
                     self.rect.top = plat.bottom
                     self.vel_y = 0
