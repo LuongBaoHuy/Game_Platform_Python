@@ -40,6 +40,8 @@ def main():
         HITBOX_BOTTOM_INSET,
         HITBOX_LEFT_INSET,
         HITBOX_RIGHT_INSET,
+        OBJECT_TILE_USE_BOTTOM_Y,
+        OBJECT_TILE_Y_OFFSET,
     )
 
     # Build map path relative to the project root to avoid absolute paths
@@ -78,6 +80,11 @@ def main():
                 player = Player(sx, sy)
         else:
             player = Player(sx, sy)
+        # Căn toạ độ spawn theo chân (midbottom) để khớp cách Tiled hiển thị point/rect
+        try:
+            player.rect.midbottom = spawn_pos
+        except Exception:
+            pass
     else:
         ids = list_characters() if callable(list_characters) else []
         if create_player and ids:
@@ -90,6 +97,11 @@ def main():
         else:
             player = Player(1200, 9200)
             spawn_pos = (1200, 9200)
+        # Đồng nhất quy ước: đặt vị trí spawn theo chân nhân vật
+        try:
+            player.rect.midbottom = spawn_pos
+        except Exception:
+            pass
 
     # Spawn enemies in the user-defined rectangle
     import random
@@ -231,7 +243,13 @@ def main():
                 and rect.bottom > camera_y
                 and rect.top < camera_y + render_h
             ):
-                render_surface.blit(tile_img, (rect.x - camera_x, rect.y - camera_y))
+                # Vẽ tile theo toạ độ gốc của Tiled (không dùng inset),
+                # chỉ dùng inset cho va chạm. Khôi phục toạ độ gốc bằng cách trừ inset đã cộng khi build rect.
+                left_draw_inset = int(HITBOX_LEFT_INSET or HITBOX_INSET)
+                top_draw_inset = int(HITBOX_TOP_INSET or HITBOX_INSET)
+                draw_x = rect.x - left_draw_inset - camera_x
+                draw_y = rect.y - top_draw_inset - camera_y
+                render_surface.blit(tile_img, (draw_x, draw_y))
 
         # Draw object-layer tiles (e.g. large decorative tiles from object layer)
         for obj in map_objects:
@@ -244,8 +262,13 @@ def main():
 
             # If tile image provided, align it so that object's y is the bottom of the image.
             tw, th = tile.get_width(), tile.get_height()
-            # Tiled thường lưu y cho tile object là bottom -> substract tile height
-            oy_aligned = oy - th
+            # Căn theo cấu hình: nếu y là đáy ảnh thì trừ chiều cao, ngược lại giữ nguyên
+            if OBJECT_TILE_USE_BOTTOM_Y:
+                oy_aligned = oy - th
+            else:
+                oy_aligned = oy
+            # Áp dụng offset tinh chỉnh nếu cần
+            oy_aligned += int(OBJECT_TILE_Y_OFFSET)
 
             # Build object's rect in world coordinates
             obj_rect_world = pygame.Rect(ox, oy_aligned, tw, th)

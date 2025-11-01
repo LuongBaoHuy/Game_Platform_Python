@@ -27,3 +27,10 @@ HITBOX_RIGHT_INSET = 0
 
 # Đường dẫn assets mặc định (nếu cần dùng)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# Căn chỉnh vị trí vẽ của các tile-object (object có gid) từ Tiled.
+# Mặc định Tiled (orthogonal) dùng toạ độ y ở CHÂN (bottom) của ảnh object.
+# Nếu trong project của bạn, toạ độ y của object ứng với đỉnh ảnh (top-left),
+# hãy đặt OBJECT_TILE_USE_BOTTOM_Y = False để KHÔNG trừ chiều cao ảnh khi vẽ.
+OBJECT_TILE_USE_BOTTOM_Y = False  # True: y là đáy ảnh; False: y là đỉnh ảnh
+OBJECT_TILE_Y_OFFSET = 0  # tinh chỉnh thêm (px), dương = đẩy ảnh xuống, âm = kéo lên
