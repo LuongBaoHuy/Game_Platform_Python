@@ -216,14 +216,25 @@ class PatrolEnemy:
 
 try:
     from game.characters.data_driven_enemy import DataDrivenEnemy
+    from game.characters.specialized_enemies import CasterEnemy, ControllerEnemy, ExploderEnemy, BossEnemy
     from game.enemy_registry import register_enemy
 
-    # Đăng ký Golem và Minotaur
+    # Đăng ký Golem
     register_enemy('Golem_02', DataDrivenEnemy)
     register_enemy('Golem_03', DataDrivenEnemy)
-    register_enemy('minotaur_01', DataDrivenEnemy)
-    register_enemy('minotaur_02', DataDrivenEnemy)
-    register_enemy('minotaur_03', DataDrivenEnemy)
+    
+    # Đăng ký Minotaur với ExploderEnemy (phát nổ khi chết)
+    register_enemy('minotaur_01', ExploderEnemy)
+    register_enemy('minotaur_02', ExploderEnemy)
+    register_enemy('minotaur_03', ExploderEnemy)
+    
+    # Đăng ký Wraith với specialized classes
+    register_enemy('Wraith_01', CasterEnemy)    # Pháp sư - tấn công từ xa
+    register_enemy('Wraith_03', ControllerEnemy)  # Khống chế - crowd control
+    
+    # Đăng ký Boss - Troll Tank Boss
+    register_enemy('Troll1', BossEnemy)  # Tank boss với Rage Mode và Invincibility
+
 except Exception as _e:
     # im lặng nếu import/đăng ký không thành công
     pass

@@ -154,13 +154,15 @@ def create_player(char_id: str, x: int, y: int) -> Character:
         # If nothing found, return empty
         return []
 
-    c.animations['idle'] = _load_state('idle')
-    c.animations['walk'] = _load_state('walk')
-    c.animations['jump'] = _load_state('jump')
-    # dash, attack, hurt, dying are optional
-    c.animations['dash'] = _load_state('dash')
-    c.animations['attack'] = _load_state('attack')
-    c.animations['hurt'] = _load_state('hurt')
-    c.animations['dying'] = _load_state('dying')
+    # Load all states defined in metadata frames, plus common defaults
+    states_to_load = set(['idle', 'walk', 'jump', 'dash', 'attack', 'hurt', 'dying'])
+    
+    # Add any additional states from metadata
+    if frames_map:
+        states_to_load.update(frames_map.keys())
+    
+    # Load all states
+    for state_name in states_to_load:
+        c.animations[state_name] = _load_state(state_name)
 
     return c

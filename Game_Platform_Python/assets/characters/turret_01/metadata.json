@@ -1,0 +1,19 @@
+{
+  "id": "turret_01",
+  "scale": 1.5,
+  "frames": {
+    "idle": 10,
+    "attack": 20,
+    "dying": 10,
+    "hurt": 5
+  },
+  "skills": [
+    {
+      "name": "blast",
+      "type": "projectile",
+      "damage": 15,
+      "speed": 700,
+      "effect_path": "assets/skill-effect/purple_skill"
+    }
+  ]
+}

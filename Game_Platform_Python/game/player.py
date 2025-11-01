@@ -69,7 +69,15 @@ class Player:
             return frames
         for filename in sorted(os.listdir(folder)):
             if filename.endswith(".png"):
-                img = pygame.image.load(os.path.join(folder, filename)).convert_alpha()
+                img = pygame.image.load(os.path.join(folder, filename))
+                # Try convert_alpha, fallback to convert if display not set
+                try:
+                    img = img.convert_alpha()
+                except pygame.error:
+                    try:
+                        img = img.convert()
+                    except pygame.error:
+                        pass  # Use original if conversion fails
                 img = pygame.transform.scale(img, size)
                 # compute transparent rows at bottom so we can align visible pixels to hitbox
                 h = img.get_height()
