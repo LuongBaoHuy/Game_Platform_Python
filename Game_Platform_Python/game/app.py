@@ -31,6 +31,13 @@ def main():
     pygame.display.set_caption("Platform từ Tiled (Zoom camera + FPS)")
     clock = pygame.time.Clock()
 
+    # Initialize sound system
+    from game.sound_manager import SoundManager
+
+    sound_manager = SoundManager()
+    # Start background music if available
+    sound_manager.play_music("background")
+
     font = pygame.font.SysFont("Arial", 24)
 
     # Load map (pass per-side hitbox inset from config)

@@ -9,7 +9,7 @@ def load_frames_simple(folder, size):
     if not os.path.isdir(folder):
         return frames
     for filename in sorted(os.listdir(folder)):
-        if filename.lower().endswith('.png'):
+        if filename.lower().endswith(".png"):
             img = pygame.image.load(os.path.join(folder, filename)).convert_alpha()
             img = pygame.transform.scale(img, size)
             # tính phần trong suốt ở đáy ảnh (bottom transparent trim)
@@ -30,16 +30,30 @@ def load_frames_simple(folder, size):
 
 class PatrolEnemy:
     def __init__(self, x, y, folder_base=None, patrol_range=300, speed=100):
+        # Sound manager for enemy sounds
+        from game.sound_manager import SoundManager
+
+        self.sound_manager = SoundManager()
+
         # x,y là toạ độ thế giới cho midbottom của sprite
         # Dùng cùng kích thước sprite như Player để căn chỉnh giống nhau
         size = (int(512 * PLAYER_SCALE), int(512 * PLAYER_SCALE))
         if folder_base is None:
-            folder_base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'Goblem', 'Golem_01', 'PNG Sequences'))
+            folder_base = os.path.abspath(
+                os.path.join(
+                    os.path.dirname(__file__),
+                    "..",
+                    "..",
+                    "Goblem",
+                    "Golem_01",
+                    "PNG Sequences",
+                )
+            )
 
         self.animations = {
-            'idle': load_frames_simple(os.path.join(folder_base, 'Idle'), size),
-            'walk': load_frames_simple(os.path.join(folder_base, 'Walking'), size),
-            'attack': load_frames_simple(os.path.join(folder_base, 'Attacking'), size),
+            "idle": load_frames_simple(os.path.join(folder_base, "Idle"), size),
+            "walk": load_frames_simple(os.path.join(folder_base, "Walking"), size),
+            "attack": load_frames_simple(os.path.join(folder_base, "Attacking"), size),
         }
 
         # Đặt hitbox giống Player để nhất quán
@@ -53,7 +67,7 @@ class PatrolEnemy:
         self.on_ground = False
 
         # trạng thái
-        self.state = 'idle'
+        self.state = "idle"
         self.current_frame = 0
         self.anim_timer = 0.0
         self.anim_speed = 0.12  # giây cho mỗi frame
@@ -87,14 +101,17 @@ class PatrolEnemy:
         prev_state = self.state
         if self.dead:
             return
-        
+
         # gravity (dùng hệ số GRAVITY=2 giống player)
         self.vel_y += GRAVITY  # không nhân với dt ở đây
         self.rect.y += self.vel_y  # không nhân với dt ở đây nữa
 
         # kiểm tra va chạm với platform
         self.on_ground = False
-        for _, platform_rect in platforms:  # platforms là list các tuple (tile_img, rect)
+        for (
+            _,
+            platform_rect,
+        ) in platforms:  # platforms là list các tuple (tile_img, rect)
             if self.rect.colliderect(platform_rect):
                 # va chạm từ trên xuống
                 if self.vel_y > 0:
@@ -108,9 +125,9 @@ class PatrolEnemy:
             # chase
             if abs(dx) <= self.attack_range:
                 # vào tầm đánh
-                self.state = 'attack'
+                self.state = "attack"
                 # trigger an attack: apply damage periodically while staying in attack state
-                if prev_state != 'attack':
+                if prev_state != "attack":
                     # Fresh attack entry: reset timers so we hit immediately
                     self.attack_timer = self.attack_duration
                     self._attack_cooldown_timer = 0.0
@@ -118,19 +135,28 @@ class PatrolEnemy:
                 self._attack_cooldown_timer -= dt
                 if self._attack_cooldown_timer <= 0.0:
                     try:
+                        # Play attack sound first
+                        if hasattr(self, 'sound_manager') and self.sound_manager is not None:
+                            try:
+                                self.sound_manager.play_sound("enemy_attack")
+                                print("Playing enemy attack sound")
+                            except Exception as e:
+                                print(f"Error playing enemy attack sound: {e}")
+                        
+                        # Then apply damage
                         player.take_damage(self.attack_damage)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Error during enemy attack: {e}")
                     self._attack_cooldown_timer = self.attack_cooldown
                 # don't move further when attacking
             else:
-                self.state = 'walk'
+                self.state = "walk"
                 dir_sign = 1 if dx > 0 else -1
                 self.rect.x += int(self.attack_speed * dir_sign * dt)
                 self.direction = 1 if dir_sign > 0 else -1
         else:
             # tuần tra khi không phát hiện player
-            self.state = 'walk'
+            self.state = "walk"
             move = self.speed * self.direction * dt
             self.rect.x += int(move)
             if self.rect.centerx < self.patrol_min:
@@ -163,21 +189,59 @@ class PatrolEnemy:
 
         frames = self.animations.get(self.state) or []
         if not frames:
-            pygame.draw.rect(surface, (150, 50, 50), (self.rect.x - camera_x, self.rect.y - camera_y, self.rect.width, self.rect.height))
+            pygame.draw.rect(
+                surface,
+                (150, 50, 50),
+                (
+                    self.rect.x - camera_x,
+                    self.rect.y - camera_y,
+                    self.rect.width,
+                    self.rect.height,
+                ),
+            )
             if show_hitbox:
-                pygame.draw.rect(surface, (255, 0, 0), (self.rect.x - camera_x, self.rect.y - camera_y, self.rect.width, self.rect.height), 2)
+                pygame.draw.rect(
+                    surface,
+                    (255, 0, 0),
+                    (
+                        self.rect.x - camera_x,
+                        self.rect.y - camera_y,
+                        self.rect.width,
+                        self.rect.height,
+                    ),
+                    2,
+                )
             return
         frame, trim = frames[self.current_frame]
-        img = frame if self.direction >= 0 else pygame.transform.flip(frame, True, False)
-        img_rect = img.get_rect(midbottom=(self.rect.centerx - camera_x, self.rect.bottom - camera_y + trim))
+        img = (
+            frame if self.direction >= 0 else pygame.transform.flip(frame, True, False)
+        )
+        img_rect = img.get_rect(
+            midbottom=(self.rect.centerx - camera_x, self.rect.bottom - camera_y + trim)
+        )
         surface.blit(img, img_rect)
         # Vẽ hitbox nếu bật
         if show_hitbox:
-            pygame.draw.rect(surface, (255, 0, 0), (self.rect.x - camera_x, self.rect.y - camera_y, self.rect.width, self.rect.height), 2)
+            pygame.draw.rect(
+                surface,
+                (255, 0, 0),
+                (
+                    self.rect.x - camera_x,
+                    self.rect.y - camera_y,
+                    self.rect.width,
+                    self.rect.height,
+                ),
+                2,
+            )
 
         # Draw a small HP bar above the enemy when damaged
         try:
-            if hasattr(self, 'hp') and hasattr(self, 'max_hp') and not self.dead and self.max_hp > 0:
+            if (
+                hasattr(self, "hp")
+                and hasattr(self, "max_hp")
+                and not self.dead
+                and self.max_hp > 0
+            ):
                 if self.hp < self.max_hp:
                     bar_w = max(40, int(self.rect.width))
                     bar_h = 6
@@ -213,27 +277,42 @@ class PatrolEnemy:
             self.hp = 0
             self.dead = True
             self.state = 'dead'
+            
+            # Play death sound
+            if hasattr(self, 'sound_manager') and self.sound_manager is not None:
+                try:
+                    self.sound_manager.play_sound("enemy_death")
+                    print("Playing enemy death sound")
+                except Exception as e:
+                    print(f"Error playing enemy death sound: {e}")
+            else:
+                print("Enemy sound manager not available for death sound")
+
 
 try:
     from game.characters.data_driven_enemy import DataDrivenEnemy
     from game.enemy_registry import register_enemy
 
     # Đăng ký Golem và Minotaur
-    register_enemy('Golem_02', DataDrivenEnemy)
-    register_enemy('Golem_03', DataDrivenEnemy)
-    register_enemy('minotaur_01', DataDrivenEnemy)
-    register_enemy('minotaur_02', DataDrivenEnemy)
-    register_enemy('minotaur_03', DataDrivenEnemy)
+    register_enemy("Golem_02", DataDrivenEnemy)
+    register_enemy("Golem_03", DataDrivenEnemy)
+    register_enemy("minotaur_01", DataDrivenEnemy)
+    register_enemy("minotaur_02", DataDrivenEnemy)
+    register_enemy("minotaur_03", DataDrivenEnemy)
 except Exception as _e:
     # im lặng nếu import/đăng ký không thành công
     pass
+
+
 class Golem02(PatrolEnemy):
-    def __init__(self, x,y, **kw):
-        super().__init__(x,y, folder_base=..., patrol_range=..., speed=40)
+    def __init__(self, x, y, **kw):
+        super().__init__(x, y, folder_base=..., patrol_range=..., speed=40)
         self.max_hp = 120
         self.attack_damage = 20
+
+
 class Golem03(PatrolEnemy):
-    def __init__(self, x,y, **kw):
-        super().__init__(x,y, folder_base=..., patrol_range=..., speed=60)
+    def __init__(self, x, y, **kw):
+        super().__init__(x, y, folder_base=..., patrol_range=..., speed=60)
         self.max_hp = 150
         self.attack_damage = 25
