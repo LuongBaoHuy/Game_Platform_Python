@@ -36,7 +36,9 @@ class DataDrivenEnemy:
                 pass
 
         # copy animations (factory returns Character-like with .animations)
-        self.animations = getattr(visual, "animations", {}) or {}
+        self.animations = getattr(visual, 'animations', {}) or {}
+        # Copy skills from visual (loaded by factory from metadata)
+        self.skills = getattr(visual, 'skills', {}) or {}
         # ensure frames are tuples (surface, trim). factory.load_frames returns (surface, 0) if implemented that way
         # We'll accept either (surface) or (surface, trim)
         # Hitbox: create a rect similar to Character default or reuse visual.rect

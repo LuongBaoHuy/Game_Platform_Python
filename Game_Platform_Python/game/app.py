@@ -139,12 +139,54 @@ def main():
             ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
             ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
             enemies.append(PatrolEnemy(ex, ey))
+    
+    
+    # Spawn BOSS - Troll Tank Boss tại các vị trí có platform
+    if create_enemy:
+        try:
+            # Boss spawn positions (các vị trí có platform trong map)
+            boss_spawn_positions = [
+                (3500, 9000),   # Gần player spawn
+                (6000, 8500),   # Khu vực giữa map
+                (8500, 8000),   # Khu vực phải
+                (2000, 9000),   # Rất gần player
+            ]
+            
+            # Chọn vị trí đầu tiên (gần player nhất)
+            boss_x, boss_y = boss_spawn_positions[0]
+            boss = create_enemy('Troll1', x=boss_x, y=boss_y)
+            enemies.append(boss)
+            
+            print(f"[BOSS] Spawned TROLL BOSS at ({boss_x}, {boss_y})")
+            print(f"[BOSS] Player spawn at (1200, 9200)")
+            print(f"[BOSS] Distance from player: X={boss_x - 1200}, Y={boss_y - 9200}")
+            print(f"[BOSS] Boss has {len(enemies)} total enemies in list")
+        except Exception as e:
+            print(f"[ERROR] Failed to spawn Boss: {e}")
+            import traceback
+            traceback.print_exc()
+    
     show_hitboxes = False  # Toggle hiển thị hitbox của từng bức tường (phím H)
+    
+    # Debug counter cho Boss
+    debug_frame_counter = 0
+    boss_instance = None
+    for e in enemies:
+        if hasattr(e, '__class__') and 'Boss' in e.__class__.__name__:
+            boss_instance = e
+            break
 
     running = True
     while running:
         ms = clock.tick(FPS)
         dt = ms / 1000.0
+        
+        # Debug Boss mỗi 60 frames (1 giây)
+        debug_frame_counter += 1
+        if debug_frame_counter >= 60 and boss_instance:
+            print(f"[BOSS DEBUG] Frame {debug_frame_counter}: Boss at ({boss_instance.rect.centerx}, {boss_instance.rect.centery}), Player at ({player.rect.centerx}, {player.rect.centery})")
+            print(f"[BOSS DEBUG] Camera at ({camera_x if 'camera_x' in locals() else 'N/A'}, {camera_y if 'camera_y' in locals() else 'N/A'})")
+            debug_frame_counter = 0
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -185,6 +227,17 @@ def main():
                 player.update_skills(dt)
             # Use consolidated move() which applies gravity and resolves collisions
             player.move(platforms)
+            
+            # Check and restore speed after slow effect expires
+            if hasattr(player, 'is_slowed') and player.is_slowed:
+                import time
+                if hasattr(player, 'slowed_until') and time.time() >= player.slowed_until:
+                    # Restore original speed
+                    if hasattr(player, '_original_speed'):
+                        old_speed = player.speed
+                        player.speed = player._original_speed
+                    player.is_slowed = False
+            
             player.update_animation()
         else:
             # freeze velocities to avoid physics progressing while dead
@@ -324,11 +377,29 @@ def main():
         nearby_platforms = [p for p in platforms if p[1].colliderect(active_rect)]
 
         for e in enemies:
-            # Nếu enemy nằm trong vùng hoạt động, cập nhật và vẽ
-            if e.rect.colliderect(active_rect):
+            # Boss luôn được update và vẽ (không bị giới hạn bởi active_rect)
+            is_boss = hasattr(e, '__class__') and 'Boss' in e.__class__.__name__
+            
+            # Nếu enemy nằm trong vùng hoạt động HOẶC là Boss, cập nhật và vẽ
+            if is_boss or e.rect.colliderect(active_rect):
                 # Only update enemy AI when player is alive; otherwise keep them frozen
                 if getattr(player, "alive", True):
                     e.update(dt, nearby_platforms, player)
+               
+                if getattr(player, "alive", True):
+                    # Boss cần ALL platforms, không chỉ nearby (vì có thể ở xa player)
+                    if is_boss:
+                        # Lấy platforms xung quanh Boss (không phải player)
+                        boss_active_rect = pygame.Rect(
+                            e.rect.centerx - render_w // 2 - activity_margin,
+                            e.rect.centery - render_h // 2 - activity_margin,
+                            render_w + activity_margin * 2,
+                            render_h + activity_margin * 2,
+                        )
+                        boss_platforms = [p for p in platforms if p[1].colliderect(boss_active_rect)]
+                        e.update(dt, boss_platforms, player)
+                    else:
+                        e.update(dt, nearby_platforms, player)
 
                 e.draw(render_surface, camera_x, camera_y, show_hitboxes)
             else:
@@ -351,6 +422,22 @@ def main():
         # Scale ra màn hình
         scaled_surface = pygame.transform.scale(render_surface, (WIDTH, HEIGHT))
         screen.blit(scaled_surface, (0, 0))
+
+        # Visual feedback khi bị slow
+        if hasattr(player, 'is_slowed') and player.is_slowed:
+            # Tạo overlay màu tím với alpha
+            slow_overlay = pygame.Surface((WIDTH, HEIGHT))
+            slow_overlay.set_alpha(30)  # Độ trong suốt
+            slow_overlay.fill((128, 0, 255))  # Màu tím
+            screen.blit(slow_overlay, (0, 0))
+            
+            # Hiển thị text SLOWED!
+            import time
+            if hasattr(player, 'slowed_until'):
+                remaining = max(0, player.slowed_until - time.time())
+                slow_text = font.render(f"SLOWED! ({remaining:.1f}s)", True, (255, 0, 255))
+                text_rect = slow_text.get_rect(center=(WIDTH // 2, 100))
+                screen.blit(slow_text, text_rect)
 
         # Hiển thị FPS
         fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, (0, 0, 0))

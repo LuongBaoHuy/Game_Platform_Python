@@ -208,8 +208,9 @@ class ProjectileSkill(SkillBase):
         **kwargs,
     ):
         super().__init__(cooldown=cooldown)
-        # Keep blast visuals at normal size by default
-        self.scale = 1.0
+
+        # Cho phép tùy chỉnh scale từ metadata (mặc định 1.0)
+        self.scale = float(kwargs.get('scale', 1.0))
         self.frames_path = frames_path
         self.speed = speed
         self.lifetime = lifetime
@@ -231,8 +232,16 @@ class ProjectileSkill(SkillBase):
             cand = os.path.normpath(cand)
             if os.path.isdir(cand):
                 for fn in sorted(os.listdir(cand)):
-                    if fn.lower().endswith(".png"):
-                        img = pygame.image.load(os.path.join(cand, fn)).convert_alpha()
+                    if fn.lower().endswith('.png'):
+                        img = pygame.image.load(os.path.join(cand, fn))
+                        # Try convert_alpha, fallback to convert if display not set
+                        try:
+                            img = img.convert_alpha()
+                        except pygame.error:
+                            try:
+                                img = img.convert()
+                            except pygame.error:
+                                pass  # Use original if conversion fails
                         frames.append((img, 0))
                 break
 
@@ -331,6 +340,7 @@ class ChargeSkill(SkillBase):
       - release(now, owner, held_time) -> fire projectile with power based on held_time
     """
 
+
     def __init__(
         self,
         frames_path=None,
@@ -349,6 +359,15 @@ class ChargeSkill(SkillBase):
             frames_path = os.path.join(
                 _REPO_ROOT, "assets", "skill-effect", "purple_skill"
             )
+
+    def __init__(self, frames_path=None, base_speed=1200, base_damage=30, max_charge=3.0, lifetime=1.5, cooldown=0.2, **kwargs):
+        super().__init__(cooldown=cooldown)
+        # ChargeSkill visuals default to very large (20x). Can be overridden in metadata via 'scale'.
+        self.scale = float(kwargs.get('scale', 20.0))
+        # If no explicit frames_path provided, prefer the purple_skill subfolder
+        if not frames_path:
+            frames_path = os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill')
+
         self.frames_path = frames_path
         self.base_speed = base_speed
         self.base_damage = base_damage
@@ -365,10 +384,12 @@ class ChargeSkill(SkillBase):
             candidates.append(frames_path)
             candidates.append(os.path.join(_REPO_ROOT, frames_path))
         # Prefer the purple_skill folder (contains PNG frames). Also try the generic skill-effect folder.
+
         candidates.append(
             os.path.join(_REPO_ROOT, "assets", "skill-effect", "purple_skill")
         )
         candidates.append(os.path.join(_REPO_ROOT, "assets", "skill-effect"))
+
 
         for cand in candidates:
             cand = os.path.normpath(cand)
@@ -379,6 +400,7 @@ class ChargeSkill(SkillBase):
                             img = pygame.image.load(
                                 os.path.join(cand, fn)
                             ).convert_alpha()
+
                         except Exception:
                             continue
                         frames.append((img, 0))
@@ -439,6 +461,7 @@ class ChargeSkill(SkillBase):
             owner=owner,
             scale=self.scale,
         )
+
         self.projectiles.append(proj)
         self.active = True
         self.last_used = now
@@ -470,12 +493,14 @@ class ChargeSkill(SkillBase):
                             # already damaged this enemy with this projectile
                             continue
                         if hasattr(e, "take_damage"):
+
                             e.take_damage(p.damage)
                         # record that this projectile has hit this enemy
                         try:
                             p.hit_targets.add(eid)
                         except Exception:
                             p.hit_targets = getattr(p, "hit_targets", set())
+
                             p.hit_targets.add(eid)
                 except Exception:
                     continue
@@ -566,3 +591,110 @@ class CloudSkill(SkillBase):
 
 
 registry.register_skill("cloud", CloudSkill)
+
+registry.register_skill('charge', ChargeSkill)
+
+
+class SlowSkill(SkillBase):
+    """Slow projectile: gây hiệu ứng làm chậm player thay vì damage cao
+    
+    Khi projectile chạm player:
+    - Gây ít damage (symbolic)
+    - Áp dụng slow effect (giảm tốc độ di chuyển)
+    - Duration dựa trên charge level
+    """
+    
+    def __init__(self, frames_path=None, base_speed=400, base_damage=3, slow_percent=50, 
+                 base_slow_duration=2.0, max_charge=2.0, lifetime=1.8, cooldown=3.5, **kwargs):
+        super().__init__(cooldown=cooldown)
+        self.scale = float(kwargs.get('scale', 2.5))
+        
+        # If no explicit frames_path provided, use purple_skill
+        if not frames_path:
+            frames_path = os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill')
+        self.frames_path = frames_path
+        
+        self.base_speed = base_speed
+        self.base_damage = base_damage  # Damage rất thấp
+        self.slow_percent = slow_percent  # Giảm bao nhiêu % tốc độ (50 = giảm 50%)
+        self.base_slow_duration = base_slow_duration  # Slow kéo dài bao lâu
+        self.max_charge = float(max_charge)
+        self.lifetime = lifetime
+        self.projectiles = []
+        self.charging = False
+        self.charge_start = 0.0
+        
+        # Load frames
+        frames = []
+        candidates = []
+        if frames_path:
+            candidates.append(frames_path)
+            candidates.append(os.path.join(_REPO_ROOT, frames_path))
+        candidates.append(os.path.join(_REPO_ROOT, 'assets', 'skill-effect', 'purple_skill'))
+        
+        for cand in candidates:
+            cand = os.path.normpath(cand)
+            if os.path.isdir(cand):
+                for fn in sorted(os.listdir(cand)):
+                    if fn.lower().endswith('.png'):
+                        try:
+                            img = pygame.image.load(os.path.join(cand, fn)).convert_alpha()
+                        except Exception:
+                            continue
+                        frames.append((img, 0))
+                break
+        
+        self.frames = frames
+    
+    def begin(self, now: float, owner) -> bool:
+        if not self.can_use(now):
+            return False
+        self.charging = True
+        self.charge_start = now
+        return True
+    
+    def release(self, now: float, owner, held_time: float) -> bool:
+        # clamp charge
+        charge = max(0.0, min(self.max_charge, float(held_time)))
+        mult = 1.0 + 1.0 * (charge / self.max_charge)  # 1.0 -> 2.0 (ít hơn charge skill)
+        speed = float(self.base_speed) * mult
+        damage = int(self.base_damage)  # Damage không tăng theo charge
+        slow_duration = self.base_slow_duration * mult  # Duration tăng theo charge
+        
+        dir_x = 1 if getattr(owner, 'facing_right', True) else -1
+        vx = dir_x * speed
+        vy = 0
+        ox = owner.rect.centerx
+        oy = owner.rect.centery
+        spawn_x = ox + dir_x * (owner.rect.width // 2 + 8)
+        spawn_y = oy
+        
+        # Tạo projectile với metadata về slow effect
+        proj = Projectile(spawn_x, spawn_y, vx, vy, self.frames, 
+                         lifetime=self.lifetime, damage=damage, owner=owner, scale=self.scale)
+        # Thêm thông tin slow vào projectile
+        proj.slow_percent = self.slow_percent
+        proj.slow_duration = slow_duration
+        proj.is_slow_projectile = True
+        
+        self.projectiles.append(proj)
+        self.active = True
+        self.last_used = now
+        self.charging = False
+        return True
+    
+    def update(self, dt: float, owner) -> None:
+        alive = []
+        for p in self.projectiles:
+            if p.update(dt):
+                alive.append(p)
+        self.projectiles = alive
+        if not self.projectiles:
+            self.active = False
+    
+    def draw(self, surface, camera_x=0, camera_y=0):
+        for p in self.projectiles:
+            p.draw(surface, camera_x, camera_y)
+
+
+registry.register_skill('slow', SlowSkill)
