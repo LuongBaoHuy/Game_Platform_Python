@@ -26,6 +26,14 @@ class Player:
         - frames_map: optional dict mapping state -> explicit folder path
         - scale: optional scale to override global PLAYER_SCALE
         """
+        # Get reference to sound manager for sound effects
+        from game.sound_manager import SoundManager
+
+        self.sound_manager = SoundManager()
+
+        # Track previous key states
+        self._prev_key_states = {pygame.K_j: False}  # Track J key state
+
         self.scale = scale if (scale is not None) else PLAYER_SCALE
         # Hitbox kích thước phóng to theo scale
         self.rect = pygame.Rect(x, y, int(120 * self.scale), int(240 * self.scale))
@@ -129,7 +137,15 @@ class Player:
             return frames
         for filename in sorted(os.listdir(folder)):
             if filename.endswith(".png"):
-                img = pygame.image.load(os.path.join(folder, filename)).convert_alpha()
+                img = pygame.image.load(os.path.join(folder, filename))
+                # Try convert_alpha, fallback to convert if display not set
+                try:
+                    img = img.convert_alpha()
+                except pygame.error:
+                    try:
+                        img = img.convert()
+                    except pygame.error:
+                        pass  # Use original if conversion fails
                 img = pygame.transform.scale(img, size)
                 # compute transparent rows at bottom so we can align visible pixels to hitbox
                 h = img.get_height()
@@ -207,6 +223,7 @@ class Player:
                 # fallback sang legacy
                 if self.use_skill("dash", now):
                     self.has_dashed = True  # Track that we've dashed
+                    self.sound_manager.play_sound("dash")
 
         # Cloud Skill (I key) - only when jumped and dashed
         if (
@@ -230,7 +247,10 @@ class Player:
                 except Exception as e:
                     print(f"Error using cloud skill: {e}")
         # Blast key (J) - chưởng ra
-        if keys[pygame.K_j]:
+        j_key_pressed = keys[pygame.K_j]
+        j_key_just_pressed = j_key_pressed and not self._prev_key_states[pygame.K_j]
+
+        if j_key_pressed:  # Handle skill activation
             now = pygame.time.get_ticks() / 1000.0
             blast = self.skills.get("blast")
             if (
@@ -239,12 +259,21 @@ class Player:
                 and hasattr(blast, "use")
             ):
                 try:
-                    blast.use(now, self)
+                    if (
+                        blast.use(now, self) and j_key_just_pressed
+                    ):  # Only play sound on initial press
+                        self.sound_manager.play_sound("attack")
                 except Exception:
                     pass
             else:
                 # If legacy dict provided, try use_skill fallback
-                self.use_skill("blast", now)
+                if (
+                    self.use_skill("blast", now) and j_key_just_pressed
+                ):  # Only play sound on initial press
+                    self.sound_manager.play_sound("attack")
+
+        # Update previous key state
+        self._prev_key_states[pygame.K_j] = j_key_pressed
         # Jump: Space or W
         if (keys[pygame.K_SPACE] or keys[pygame.K_w]) and self.on_ground:
             self.vel_y = JUMP_POWER
@@ -252,6 +281,7 @@ class Player:
             self.state = "jump"
             self.current_frame = 0
             self.has_jumped = True  # Track that we've jumped
+            self.sound_manager.play_sound("jump")
 
         # Use skill key (L) - press to use skill when mana is full
         if keys[pygame.K_l]:
@@ -284,6 +314,7 @@ class Player:
                             and hasattr(charge_skill, "release")
                         ):
                             charge_skill.release(now, self, 3.0)  # Use max charge
+                            self.sound_manager.play_sound("charge_skill")
             except Exception as e:
                 print(f"Error using charge skill: {e}")
 
@@ -406,6 +437,8 @@ class Player:
         if self.hp <= 0:
             self.hp = 0
             self.alive = False
+            self.sound_manager.play_sound("game_over")
+        self.sound_manager.play_sound("hurt")
 
     def update_skills(self, dt):
         # dt in seconds

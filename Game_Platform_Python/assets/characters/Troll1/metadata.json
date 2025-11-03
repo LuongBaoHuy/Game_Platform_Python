@@ -1,0 +1,48 @@
+{
+  "char_id": "Troll1",
+  "display_name": "Troll Boss",
+  "type": "boss",
+  "base_hp": 1000,
+  "base_damage": 20,
+  "base_speed": 90,
+  "base_defense": 10,
+  "patrol_range": 400,
+  "detection_range": 700,
+  "attack_range": 120,
+  "experience_reward": 500,
+  
+  "frames": {
+    "idle": "PNG Sequences/Idle",
+    "walk": "PNG Sequences/Walking",
+    "run": "PNG Sequences/Run",
+    "attack": "PNG Sequences/Attacking",
+    "hurt": "PNG Sequences/Hurt",
+    "dying": "PNG Sequences/Dying",
+    "jump": "PNG Sequences/Jump"
+  },
+  
+  "skills": {
+    "melee": {
+      "type": "melee",
+      "damage": 20,
+      "cooldown": 1.5,
+      "range": 120
+    },
+    "ground_slam": {
+      "type": "area_damage",
+      "damage": 30,
+      "cooldown": 8.0,
+      "radius": 200,
+      "description": "Ground slam gây damage theo vùng"
+    }
+  },
+  
+  "boss_mechanics": {
+    "rage_threshold": 0.5,
+    "rage_speed_multiplier": 1.6,
+    "rage_damage_multiplier": 1.75,
+    "invincibility_duration": 2.5,
+    "invincibility_cooldown": 15.0,
+    "phase_change_invincibility": 3.0
+  }
+}
