@@ -13,6 +13,12 @@ This is a minimal starting point — extend `factory.py` and `base.py` when
 you want data-driven characters, custom skills, or subclasses.
 """
 
+# Import skills module FIRST to trigger skill registration
+try:
+    from . import skills as _skills
+except Exception:
+    pass
+
 from .factory import create_player, list_characters
 
 __all__ = ["create_player", "list_characters"]

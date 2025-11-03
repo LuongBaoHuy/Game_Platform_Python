@@ -1,0 +1,27 @@
+{
+  "id": "Wraith_01",
+  "name": "Wraith Mage",
+  "scale": 1.0,
+  "frames": {
+    "idle": "PNG Sequences/Idle",
+    "walk": "PNG Sequences/Walking",
+    "jump": "PNG Sequences/Idle",
+    "attack": "PNG Sequences/Attacking",
+    "dying": "PNG Sequences/Dying",
+    "hurt": "PNG Sequences/Hurt",
+    "cast": "PNG Sequences/Casting Spells"
+  },
+  "skills": [
+    {
+      "id": "blast",
+      "params": {
+        "frames_path": "assets/skill-effect/wraith01_skill",
+        "cooldown": 2.0,
+        "speed": 800,
+        "damage": 10,
+        "lifetime": 1.2,
+        "scale": 2.5
+      }
+    }
+  ]
+}

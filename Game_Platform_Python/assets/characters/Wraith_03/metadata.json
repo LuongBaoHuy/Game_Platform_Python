@@ -1,0 +1,30 @@
+{
+  "id": "Wraith_03",
+  "name": "Wraith Controller",
+  "scale": 1.0,
+  "frames": {
+    "idle": "PNG Sequences/Idle",
+    "walk": "PNG Sequences/Walking",
+    "jump": "PNG Sequences/Idle",
+    "attack": "PNG Sequences/Attacking",
+    "dying": "PNG Sequences/Dying",
+    "hurt": "PNG Sequences/Hurt",
+    "cast": "PNG Sequences/Casting Spells"
+  },
+  "skills": [
+    {
+      "id": "slow",
+      "params": {
+        "frames_path": "assets/skill-effect/wraith03_skill",
+        "base_speed": 400,
+        "base_damage": 3,
+        "slow_percent": 95,
+        "base_slow_duration": 4.0,
+        "max_charge": 2.0,
+        "lifetime": 1.8,
+        "cooldown": 3.5,
+        "scale": 2.5
+      }
+    }
+  ]
+}
