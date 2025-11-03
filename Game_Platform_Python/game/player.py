@@ -10,7 +10,14 @@ except Exception:
 
 
 class Player:
-    def __init__(self, x, y, sprite_path: str = None, frames_map: dict = None, scale: float = None):
+    def __init__(
+        self,
+        x,
+        y,
+        sprite_path: str = None,
+        frames_map: dict = None,
+        scale: float = None,
+    ):
         """Player constructor.
 
         Parameters:
@@ -47,17 +54,34 @@ class Player:
         self.current_frame = 0
         self.animation_timer = 0
         self.animation_speed = 0.15
-        # Health
+        # Health and Mana
         self.max_hp = 100
         self.hp = self.max_hp
+        self.max_mana = 100
+        self.mana = self.max_mana
+        self.mana_regen_rate = 20  # Mana points per second
         self.alive = True
+        self.can_use_skills = True  # Flag to control skill usage
+
+        # Skill direction system
+        self.shoot_direction = {"x": 0, "y": 0}  # Direction vector for skills
 
         # Skills: có thể là legacy dict (như trước) hoặc các instance SkillBase
         # Nếu factory gắn skill (SkillBase) thì self.skills sẽ chứa các instance
         # Ví dụ dạng legacy: self.skills = {"dash": {"cooldown":..., ...}}
         self.skills = {
-            "dash": {"cooldown": 1.0, "last_used": -999.0, "duration": 0.18, "active": False, "speed_multiplier": 3.0}
+            "dash": {
+                "cooldown": 1.0,
+                "last_used": -999.0,
+                "duration": 0.8,
+                "active": False,
+                "speed_multiplier": 2.5,
+            }
         }
+
+        # Track jump and dash state for cloud skill
+        self.has_jumped = False
+        self.has_dashed = False
         # skill_timers dùng cho legacy implementation; SkillBase subclasses có thể
         # quản lý timer riêng trong instance của chúng.
         self.skill_timers = {}
@@ -68,12 +92,32 @@ class Player:
         # Attach a default ChargeSkill instance if available
         try:
             from game.characters.skills import ChargeSkill
-            # default frames_path points to repo-relative assets/skill-effect
+
+            # Attach a default ChargeSkill instance if available
             try:
                 # Prefer the specific purple_skill folder and ensure large scale
-                self.skills['charge'] = ChargeSkill(frames_path=os.path.join('assets', 'skill-effect', 'purple_skill'), base_speed=1200, base_damage=30, max_charge=3.0, scale=10.0)
+                self.skills["charge"] = ChargeSkill(
+                    frames_path=os.path.join("assets", "skill-effect", "purple_skill"),
+                    base_speed=1200,
+                    base_damage=30,
+                    max_charge=3.0,
+                    scale=10.0,
+                )
             except Exception:
                 # if instantiation fails, skip
+                pass
+
+            # Add cloud skill
+            try:
+                from game.characters.skills import CloudSkill
+
+                cloud_skill = CloudSkill()
+                cloud_skill.set_owner(
+                    self
+                )  # This will set the owner and scale the cloud properly
+                self.skills["cloud"] = cloud_skill
+            except Exception as e:
+                print(f"Error creating cloud skill: {e}")
                 pass
         except Exception:
             pass
@@ -105,6 +149,20 @@ class Player:
     def handle_input(self):
         keys = pygame.key.get_pressed()
         moving = False
+
+        # Update shooting direction based on movement keys
+        self.shoot_direction["x"] = 0
+        self.shoot_direction["y"] = 0
+        if keys[pygame.K_w]:  # Up
+            self.shoot_direction["y"] = -1
+        if keys[pygame.K_s]:  # Down
+            self.shoot_direction["y"] = 1
+        if keys[pygame.K_d]:  # Right
+            self.shoot_direction["x"] = 1
+            self.facing_right = True
+        if keys[pygame.K_a]:  # Left
+            self.shoot_direction["x"] = -1
+            self.facing_right = False
         # Nếu đang dash thì không override vel_x từ input
         # Hỗ trợ cả 2 hệ thống skill:
         # - Nếu skill là object (SkillBase) dùng thuộc tính .active
@@ -113,8 +171,8 @@ class Player:
         dash_active = False
         if isinstance(dash_obj, dict):
             dash_active = bool(dash_obj.get("active"))
-        elif SkillBase is not None and hasattr(dash_obj, 'active'):
-            dash_active = bool(getattr(dash_obj, 'active', False))
+        elif SkillBase is not None and hasattr(dash_obj, "active"):
+            dash_active = bool(getattr(dash_obj, "active", False))
 
         if not dash_active:
             self.vel_x = 0
@@ -134,20 +192,52 @@ class Player:
             now = pygame.time.get_ticks() / 1000.0
             # Nếu skill là object: gọi phương thức use của nó
             dash = self.skills.get("dash")
-            if SkillBase is not None and not isinstance(dash, dict) and hasattr(dash, 'use'):
+            if (
+                SkillBase is not None
+                and not isinstance(dash, dict)
+                and hasattr(dash, "use")
+            ):
                 # use(now, owner) -> skill có thể căn cứ owner.vel_x để áp lực
                 try:
-                    dash.use(now, self)
+                    if dash.use(now, self):
+                        self.has_dashed = True  # Track that we've dashed
                 except Exception:
                     pass
             else:
                 # fallback sang legacy
-                self.use_skill("dash", now)
+                if self.use_skill("dash", now):
+                    self.has_dashed = True  # Track that we've dashed
+
+        # Cloud Skill (I key) - only when jumped and dashed
+        if (
+            keys[pygame.K_i]
+            and not self.on_ground
+            and self.has_jumped
+            and self.has_dashed
+        ):
+            now = pygame.time.get_ticks() / 1000.0
+            cloud = self.skills.get("cloud")
+            if (
+                SkillBase is not None
+                and not isinstance(cloud, dict)
+                and hasattr(cloud, "use")
+            ):
+                try:
+                    if cloud.use(now, self):
+                        # Reset jump and dash flags after using cloud skill
+                        self.has_jumped = False
+                        self.has_dashed = False
+                except Exception as e:
+                    print(f"Error using cloud skill: {e}")
         # Blast key (J) - chưởng ra
         if keys[pygame.K_j]:
             now = pygame.time.get_ticks() / 1000.0
             blast = self.skills.get("blast")
-            if SkillBase is not None and not isinstance(blast, dict) and hasattr(blast, 'use'):
+            if (
+                SkillBase is not None
+                and not isinstance(blast, dict)
+                and hasattr(blast, "use")
+            ):
                 try:
                     blast.use(now, self)
                 except Exception:
@@ -161,45 +251,41 @@ class Player:
             self.on_ground = False
             self.state = "jump"
             self.current_frame = 0
+            self.has_jumped = True  # Track that we've jumped
 
-        # Charge key (L) - hold to charge, release to fire
-        charge_skill = self.skills.get('charge')
+        # Use skill key (L) - press to use skill when mana is full
         if keys[pygame.K_l]:
-            # start charging on first frame of press
-            if not self._is_charging:
-                # Ensure a ChargeSkill instance exists (attach dynamically if factory didn't)
-                if charge_skill is None:
-                    try:
-                        from game.characters.skills import ChargeSkill
-                        # explicitly point to purple_skill frames and use large scale
-                        inst = ChargeSkill(frames_path=os.path.join('assets', 'skill-effect', 'purple_skill'), base_speed=1200, base_damage=30, max_charge=3.0, scale=20.0)
-                        self.skills['charge'] = inst
-                        charge_skill = inst
-                    except Exception:
-                        charge_skill = None
+            try:
+                charge_skill = self.skills.get("charge")
+                if self.can_use_skills and charge_skill is not None:
+                    now = pygame.time.get_ticks() / 1000.0
+                    if self.use_mana(self.max_mana):  # Use all mana for the skill
+                        # Ensure a ChargeSkill instance exists (attach dynamically if factory didn't)
+                        if charge_skill is None:
+                            from game.characters.skills import ChargeSkill
 
-                self._is_charging = True
-                self._charge_start = pygame.time.get_ticks() / 1000.0
-                # notify skill instance if it supports begin()
-                if SkillBase is not None and not isinstance(charge_skill, dict) and hasattr(charge_skill, 'begin') and charge_skill is not None:
-                    try:
-                        charge_skill.begin(self._charge_start, self)
-                    except Exception:
-                        pass
-        else:
-            # if was charging and key released -> fire
-            if self._is_charging:
-                now = pygame.time.get_ticks() / 1000.0
-                held = now - self._charge_start
-                self._is_charging = False
-                # ensure we have a skill instance (might have been attached dynamically earlier)
-                if charge_skill is None:
-                    charge_skill = self.skills.get('charge')
-                if SkillBase is not None and not isinstance(charge_skill, dict) and hasattr(charge_skill, 'release') and charge_skill is not None:
-                    try:
-                        charge_skill.release(now, self, held)
-                    except Exception:
-                        pass
+                            # explicitly point to purple_skill frames and use large scale
+                            inst = ChargeSkill(
+                                frames_path=os.path.join(
+                                    "assets", "skill-effect", "purple_skill"
+                                ),
+                                base_speed=1200,
+                                base_damage=30,
+                                max_charge=3.0,
+                                scale=20.0,
+                            )
+                            self.skills["charge"] = inst
+                            charge_skill = inst
+
+                        # Fire skill immediately at full power
+                        if (
+                            SkillBase is not None
+                            and not isinstance(charge_skill, dict)
+                            and hasattr(charge_skill, "release")
+                        ):
+                            charge_skill.release(now, self, 3.0)  # Use max charge
+            except Exception as e:
+                print(f"Error using charge skill: {e}")
 
         # Không ghi đè state nếu đang dash, để dash animation có thể chạy
         # Dùng dash_active (đã tính toán ở trên) để tránh KeyError khi c.skills không có 'dash'
@@ -208,8 +294,8 @@ class Player:
         dash_active = False
         if isinstance(dash_obj, dict):
             dash_active = bool(dash_obj.get("active"))
-        elif SkillBase is not None and hasattr(dash_obj, 'active'):
-            dash_active = bool(getattr(dash_obj, 'active', False))
+        elif SkillBase is not None and hasattr(dash_obj, "active"):
+            dash_active = bool(getattr(dash_obj, "active", False))
 
         if not dash_active:
             if not self.on_ground:
@@ -237,9 +323,29 @@ class Player:
                     self.rect.bottom = plat.top
                     self.vel_y = 0
                     self.on_ground = True
+                    # Reset jump and dash flags when landing
+                    self.has_jumped = False
+                    self.has_dashed = False
                 elif self.vel_y < 0:
                     self.rect.top = plat.bottom
                     self.vel_y = 0
+
+    def update_mana(self, dt):
+        # Regenerate mana over time if not full
+        if self.mana < self.max_mana:
+            self.mana = min(self.max_mana, self.mana + self.mana_regen_rate * dt)
+            # Only allow using skills when mana is full
+            self.can_use_skills = False
+        else:
+            self.can_use_skills = True
+
+    def use_mana(self, amount):
+        # Only allow using skills when mana is 100%
+        if self.mana >= self.max_mana and self.can_use_skills:
+            self.mana = 0  # Use all mana
+            self.can_use_skills = False  # Disable skills until mana is full again
+            return True
+        return False
 
     def update_animation(self):
         frames = self.animations.get(self.state, [])
@@ -285,7 +391,7 @@ class Player:
             return True
         else:
             # Nếu là skill object (SkillBase), gọi phương thức use
-            if hasattr(s, 'use'):
+            if hasattr(s, "use"):
                 try:
                     return s.use(now_time, self)
                 except Exception:
@@ -306,7 +412,7 @@ class Player:
         # Hỗ trợ cả hệ thống mới (SkillBase instances) và legacy dict
         for name, s in list(self.skills.items()):
             # Nếu là object có update method -> dùng nó
-            if not isinstance(s, dict) and hasattr(s, 'update'):
+            if not isinstance(s, dict) and hasattr(s, "update"):
                 try:
                     s.update(dt, self)
                 except Exception:
@@ -336,16 +442,28 @@ class Player:
         frame_surf, bottom_trim = frames[self.current_frame]
         if not self.facing_right:
             frame_surf = pygame.transform.flip(frame_surf, True, False)
-        sprite_rect = frame_surf.get_rect(midbottom=(self.rect.centerx - camera_x,
-                                                     self.rect.bottom - camera_y + bottom_trim))
+        sprite_rect = frame_surf.get_rect(
+            midbottom=(
+                self.rect.centerx - camera_x,
+                self.rect.bottom - camera_y + bottom_trim,
+            )
+        )
         surface.blit(frame_surf, sprite_rect)
-        pygame.draw.rect(surface, (255, 0, 0),
-                         (self.rect.x - camera_x, self.rect.y - camera_y,
-                          self.rect.width, self.rect.height), 2)
+        pygame.draw.rect(
+            surface,
+            (255, 0, 0),
+            (
+                self.rect.x - camera_x,
+                self.rect.y - camera_y,
+                self.rect.width,
+                self.rect.height,
+            ),
+            2,
+        )
 
         # Draw any skill visuals (e.g. projectiles) if skill instances expose draw()
-        for name, s in getattr(self, 'skills', {}).items():
-            if not isinstance(s, dict) and hasattr(s, 'draw'):
+        for name, s in getattr(self, "skills", {}).items():
+            if not isinstance(s, dict) and hasattr(s, "draw"):
                 try:
                     s.draw(surface, camera_x, camera_y)
                 except Exception:
@@ -353,7 +471,7 @@ class Player:
 
         # Draw a small charging indicator above the player if holding L
         try:
-            if getattr(self, '_is_charging', False):
+            if getattr(self, "_is_charging", False):
                 cx = int(self.rect.centerx - camera_x)
                 cy = int(self.rect.top - camera_y - 10)
                 # small translucent circle
