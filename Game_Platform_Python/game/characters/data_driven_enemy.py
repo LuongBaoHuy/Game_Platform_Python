@@ -73,6 +73,8 @@ class DataDrivenEnemy:
         self.hp = self.max_hp
         self.dead = False
         self.dying = False  # Đang trong trạng thái chết
+        self.dying_timer = 0.0  # Timer để force dead nếu animation stuck
+        self.max_dying_duration = 2.0  # Tối đa 2 giây cho dying animation
         self.hurt_timer = 0.0  # Timer cho hurt animation
         self.facing_right = True
 
@@ -80,6 +82,14 @@ class DataDrivenEnemy:
         # Nếu đã chết hoàn toàn, không làm gì
         if self.dead:
             return
+
+        # Nếu đang dying, tăng timer và force dead nếu quá lâu
+        if self.dying:
+            self.dying_timer += dt
+            if self.dying_timer >= self.max_dying_duration:
+                print(f"[ENEMY] Dying timeout - forcing death after {self.dying_timer:.2f}s")
+                self.dead = True
+                return
 
         # Tính khoảng cách đến player (dùng cho AI logic)
         dx = player.rect.centerx - self.rect.centerx
@@ -195,12 +205,17 @@ class DataDrivenEnemy:
                 if self.state == "dying":
                     if self.current_frame < len(frames) - 1:
                         self.current_frame += 1
-                    # Khi đến frame cuối, đánh dấu dead
-                    if self.current_frame >= len(frames) - 1:
+                    else:
+                        # Đã đến frame cuối hoặc không có frames - đánh dấu dead
                         self.dead = True
+                        print(f"[ENEMY] Dying animation complete - enemy is now dead")
                 else:
                     # Các animation khác loop bình thường
                     self.current_frame = (self.current_frame + 1) % len(frames)
+        elif self.state == "dying":
+            # Nếu không có frames cho dying state, set dead ngay
+            print(f"[ENEMY] No dying frames available - instant death")
+            self.dead = True
 
     def draw(self, surface, camera_x, camera_y, show_hitbox: bool = False):
         if self.dead:
@@ -291,10 +306,22 @@ class DataDrivenEnemy:
 
         if self.hp <= 0:
             self.hp = 0
-            self.dying = True  # Bắt đầu dying animation
-            self.state = "dying"
-            self.current_frame = 0
-            self.anim_timer = 0.0
+            
+            # Check if dying animation exists
+            has_dying_animation = "dying" in self.animations and len(self.animations.get("dying", [])) > 0
+            
+            if has_dying_animation:
+                self.dying = True  # Bắt đầu dying animation
+                self.state = "dying"
+                self.current_frame = 0
+                self.anim_timer = 0.0
+                print(f"[ENEMY] Starting dying animation ({len(self.animations['dying'])} frames)")
+            else:
+                # Không có dying animation - chết ngay lập tức
+                self.dead = True
+                self.dying = False
+                print(f"[ENEMY] No dying animation found - instant death")
+            
             # Play death sound
             if hasattr(self, "sound_manager") and self.sound_manager is not None:
                 try:
@@ -302,8 +329,10 @@ class DataDrivenEnemy:
                 except Exception as e:
                     print(f"Error playing enemy death sound: {e}")
         else:
-            # Trigger hurt animation
-            self.hurt_timer = 0.25  # Hurt animation kéo dài 0.25 giây
-            self.state = "hurt"
-            self.current_frame = 0
-            self.anim_timer = 0.0
+            # Trigger hurt animation (chỉ khi có animation hurt)
+            has_hurt_animation = "hurt" in self.animations and len(self.animations.get("hurt", [])) > 0
+            if has_hurt_animation:
+                self.hurt_timer = 0.25  # Hurt animation kéo dài 0.25 giây
+                self.state = "hurt"
+                self.current_frame = 0
+                self.anim_timer = 0.0

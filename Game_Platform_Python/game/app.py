@@ -19,6 +19,8 @@ from game.enemy import PatrolEnemy
 # Try to import enemy registry helpers (optional)
 try:
     from game.enemy_registry import create_enemy, list_enemies as list_enemy_ids
+    # Import enemy module to trigger registration
+    import game.enemy
 except Exception:
     create_enemy = None
     list_enemy_ids = lambda: []
@@ -153,86 +155,169 @@ def run_game_session(screen, selected_char):
         except Exception:
             pass
 
-    # Spawn enemies in the user-defined rectangle
+    # Spawn 5 enemies near player
     import random
+    import math
 
-    ENEMY_SPAWN_MIN_X = 1000
-    ENEMY_SPAWN_MAX_X = 14200
-    ENEMY_SPAWN_MIN_Y = 1500
-    ENEMY_SPAWN_MAX_Y = 9000
-    ENEMY_COUNT = 12  # default number of enemies to spawn
-
-    enemies = []
-    # Determine possible enemy ids from registry (if available)
-    if create_enemy:
-        enemy_ids = list_enemy_ids() or ["golem_02", "golem_03"]
-        for i in range(ENEMY_COUNT):
-            ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
-            ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
-            eid = random.choice(enemy_ids)
+    # ============================================
+    # HỆ THỐNG GIAI ĐOẠN (STAGES)
+    # ============================================
+    
+    # Cấu hình các giai đoạn
+    STAGES = [
+        {
+            'name': 'Stage 1',
+            'enemy_count': 5,
+            'spawn_center': (2649, 9200),
+            'enemy_types': ['Golem_02', 'Golem_03', 'minotaur_01', 'Wraith_01'],
+            'boss': 'Troll1'
+        },
+        {
+            'name': 'Stage 2',
+            'enemy_count': 7,
+            'spawn_center': (2649, 9200),  # Spawn gần player để test
+            'enemy_types': ['minotaur_01', 'minotaur_02', 'Wraith_01', 'Wraith_03'],
+            'boss': 'Troll1'
+        },
+        {
+            'name': 'Stage 3',
+            'enemy_count': 10,
+            'spawn_center': (2649, 9200),  # Spawn theo vị trí player
+            'enemy_types': ['Golem_02', 'Golem_03', 'minotaur_01', 'minotaur_02', 'Wraith_01', 'Wraith_03'],
+            'boss': 'Troll1'
+        }
+    ]
+    
+    current_stage = 0  # Giai đoạn hiện tại (0 = Stage 1, 1 = Stage 2)
+    stage_completed = False
+    
+    def spawn_stage_enemies(stage_index):
+        """Spawn enemies cho giai đoạn cụ thể"""
+        if stage_index >= len(STAGES):
+            print(f"[STAGE] No more stages!")
+            return [], []
+        
+        stage = STAGES[stage_index]
+        # Compact log để spawn nhanh hơn
+        print(f"[STAGE] {stage['name']}: Spawning {stage['enemy_count']} enemies at {stage['spawn_center']}")
+        
+        stage_enemies = []
+        stage_enemy_ids = []
+        enemy_count = stage['enemy_count']
+        spawn_center = stage['spawn_center']
+        enemy_types = stage.get('enemy_types', ['Golem_02', 'Golem_03'])
+        
+        if create_enemy:
+            # Batch spawn để tăng tốc độ
+            for i in range(enemy_count):
+                angle = random.uniform(0, 2 * math.pi)
+                distance = random.uniform(50, 150)
+                ex = int(spawn_center[0] + math.cos(angle) * distance)
+                ey = int(spawn_center[1] + math.sin(angle) * distance)
+                
+                eid = random.choice(enemy_types)
+                inst = None
+                try:
+                    inst = create_enemy(eid, ex, ey)
+                    # Tắt log chi tiết để spawn nhanh hơn
+                except Exception as e:
+                    # Silent fallback
+                    try:
+                        inst = PatrolEnemy(ex, ey)
+                    except Exception:
+                        pass
+                
+                if inst:
+                    stage_enemies.append(inst)
+                    stage_enemy_ids.append(id(inst))
+        else:
+            # Fallback
+            for i in range(enemy_count):
+                angle = random.uniform(0, 2 * math.pi)
+                distance = random.uniform(50, 150)
+                ex = int(spawn_center[0] + math.cos(angle) * distance)
+                ey = int(spawn_center[1] + math.sin(angle) * distance)
+                inst = PatrolEnemy(ex, ey)
+                stage_enemies.append(inst)
+                stage_enemy_ids.append(id(inst))
+        
+        # Ensure enough enemies
+        while len(stage_enemies) < enemy_count:
+            angle = random.uniform(0, 2 * math.pi)
+            distance = random.uniform(50, 150)
+            ex = int(spawn_center[0] + math.cos(angle) * distance)
+            ey = int(spawn_center[1] + math.sin(angle) * distance)
             try:
-                inst = create_enemy(eid, ex, ey)
-                enemies.append(inst)
+                inst = PatrolEnemy(ex, ey)
+                stage_enemies.append(inst)
+                stage_enemy_ids.append(id(inst))
             except Exception:
-                # fallback to simple patrol enemy if creation fails
-                enemies.append(PatrolEnemy(ex, ey))
-    else:
-        # fallback: spawn classic PatrolEnemy instances
-        for i in range(ENEMY_COUNT):
-            ex = random.randint(ENEMY_SPAWN_MIN_X, ENEMY_SPAWN_MAX_X)
-            ey = random.randint(ENEMY_SPAWN_MIN_Y, ENEMY_SPAWN_MAX_Y)
-            enemies.append(PatrolEnemy(ex, ey))
-
-    # Spawn BOSS - Troll Tank Boss tại các vị trí có platform
+                break
+        
+        print(f"[STAGE] ✓ Spawned {len(stage_enemies)}/{enemy_count} enemies")
+        return stage_enemies, stage_enemy_ids
+    
+    # ============================================
+    # PRELOAD ANIMATIONS
+    # ============================================
+    # Collect tất cả enemy types từ tất cả stages
+    all_enemy_types = set()
+    for stage in STAGES:
+        all_enemy_types.update(stage.get('enemy_types', []))
+        if stage.get('boss'):
+            all_enemy_types.add(stage['boss'])
+    
+    # Preload để tránh lag khi spawn
     if create_enemy:
-        try:
-            # Boss spawn positions (các vị trí có platform trong map)
-            boss_spawn_positions = [
-                (3500, 9000),  # Gần player spawn
-                (6000, 8500),  # Khu vực giữa map
-                (8500, 8000),  # Khu vực phải
-                (2000, 9000),  # Rất gần player
-            ]
-
-            # Chọn vị trí đầu tiên (gần player nhất)
-            boss_x, boss_y = boss_spawn_positions[0]
-            boss = create_enemy("Troll1", x=boss_x, y=boss_y)
-            enemies.append(boss)
-
-            print(f"[BOSS] Spawned TROLL BOSS at ({boss_x}, {boss_y})")
-            print(f"[BOSS] Player spawn at (1200, 9200)")
-            print(f"[BOSS] Distance from player: X={boss_x - 1200}, Y={boss_y - 9200}")
-            print(f"[BOSS] Boss has {len(enemies)} total enemies in list")
-        except Exception as e:
-            print(f"[ERROR] Failed to spawn Boss: {e}")
-            import traceback
-
-            traceback.print_exc()
+        from game.characters.factory import preload_enemies
+        preload_enemies(list(all_enemy_types))
+    
+    # ============================================
+    # SPAWN STAGE 1
+    # ============================================
+    # Spawn Stage 1
+    enemies, initial_enemies_ids = spawn_stage_enemies(current_stage)
+    INITIAL_ENEMY_COUNT = STAGES[current_stage]['enemy_count']  # Lấy số lượng từ config
+    
+    print(f"[SPAWN] Boss will appear after defeating all {INITIAL_ENEMY_COUNT} enemies")
+    
+    # Verify we have enough enemies
+    if len(enemies) != INITIAL_ENEMY_COUNT:
+        print(f"[WARNING] Expected {INITIAL_ENEMY_COUNT} enemies but got {len(enemies)}")
+    else:
+        print(f"[SUCCESS] All {INITIAL_ENEMY_COUNT} enemies spawned successfully!")
+    
+    # Boss tracking variables
+    boss_spawned = False
+    boss_instance = None
+    initial_enemies_killed = 0
+    boss_spawn_message_timer = 0.0  # Timer cho thông báo boss spawn
+    boss_spawn_message_duration = 5.0  # Hiển thị 5 giây
+    
+    # Stage transition notification
+    stage_notification = ""
+    stage_notification_type = "normal"  # "cleared", "new_stage", "victory"
+    stage_notification_timer = 0.0
+    stage_notification_duration = 10.0  # Hiển thị 10 giây - RẤT LÂU
+    game_won = False  # Track if player has won the game
 
     show_hitboxes = False  # Toggle hiển thị hitbox của từng bức tường (phím H)
 
-    # Debug counter cho Boss
+    # Debug counter
     debug_frame_counter = 0
-    boss_instance = None
-    for e in enemies:
-        if hasattr(e, "__class__") and "Boss" in e.__class__.__name__:
-            boss_instance = e
-            break
 
     running = True
     while running:
         ms = clock.tick(FPS)
         dt = ms / 1000.0
 
-        # Debug Boss mỗi 60 frames (1 giây)
+        # Debug thông tin mỗi giây
         debug_frame_counter += 1
-        if debug_frame_counter >= 60 and boss_instance:
-            print(
-                f"[BOSS DEBUG] Frame {debug_frame_counter}: Boss at ({boss_instance.rect.centerx}, {boss_instance.rect.centery}), Player at ({player.rect.centerx}, {player.rect.centery})"
-            )
-            print(
-                f"[BOSS DEBUG] Camera at ({camera_x if 'camera_x' in locals() else 'N/A'}, {camera_y if 'camera_y' in locals() else 'N/A'})"
-            )
+        if debug_frame_counter >= 60:
+            alive_enemies = [e for e in enemies if not getattr(e, "dead", False)]
+            print(f"[DEBUG] Enemies alive: {len(alive_enemies)}, Boss spawned: {boss_spawned}")
+            if boss_instance:
+                print(f"[BOSS] Boss at ({boss_instance.rect.centerx}, {boss_instance.rect.centery})")
             debug_frame_counter = 0
 
         for event in pygame.event.get():
@@ -273,6 +358,13 @@ def run_game_session(screen, selected_char):
                             player.vel_y = 0
                         except Exception:
                             pass
+                    elif event.key == pygame.K_q:
+                        running = False
+                
+                # If game won, allow play again (R) or quit (Q)
+                if game_won:
+                    if event.key == pygame.K_r:
+                        return "play_again"
                     elif event.key == pygame.K_q:
                         running = False
 
@@ -484,8 +576,129 @@ def run_game_session(screen, selected_char):
                     except Exception:
                         pass
 
+        # Track initial enemies killed and spawn boss when all are defeated
+        if not boss_spawned and len(initial_enemies_ids) > 0:
+            # Count how many initial enemies are still alive
+            current_ids = [id(e) for e in enemies if not getattr(e, "dead", False)]
+            alive_initial = sum(1 for eid in initial_enemies_ids if eid in current_ids)
+            initial_enemies_killed = INITIAL_ENEMY_COUNT - alive_initial
+            
+            # If all initial enemies are dead, spawn boss
+            if alive_initial == 0:
+                print(f"\n{'='*50}")
+                print(f"[BOSS] All {INITIAL_ENEMY_COUNT} enemies defeated!")
+                
+                # Show stage cleared notification IMMEDIATELY
+                stage_notification = f"{STAGES[current_stage]['name'].upper()} CLEARED!"
+                stage_notification_type = "cleared"
+                # Stage 1: 6s, Stage 2: 8s, Stage 3: 8s
+                if current_stage == 0:
+                    stage_notification_timer = 6.0
+                else:
+                    stage_notification_timer = 8.0
+                
+                print(f"[BOSS] Spawning BOSS near player...")
+                print(f"[BOSS] Current player position: X={player.rect.centerx}, Y={player.rect.centery}")
+                print(f"{'='*50}\n")
+                
+                if create_enemy:
+                    try:
+                        # Tìm platform gần player để spawn boss
+                        offset = random.choice([250, 300, 350])
+                        boss_x = int(player.rect.centerx + offset)
+                        
+                        # Tìm platform phía dưới player (hoặc gần player)
+                        nearest_platform_y = None
+                        search_radius = 2000  # Tìm trong bán kính 2000px
+                        
+                        print(f"[BOSS] Searching for platform near player...")
+                        for _, platform_rect in platforms:
+                            # Tìm platform gần vị trí boss_x
+                            if abs(platform_rect.centerx - boss_x) < 1000:
+                                # Platform phải ở dưới player hoặc gần player (trong range ±2000)
+                                if abs(platform_rect.top - player.rect.centery) < search_radius:
+                                    if nearest_platform_y is None or abs(platform_rect.top - player.rect.centery) < abs(nearest_platform_y - player.rect.centery):
+                                        nearest_platform_y = platform_rect.top
+                        
+                        # Nếu tìm thấy platform, spawn trên đó
+                        if nearest_platform_y is not None:
+                            boss_y = nearest_platform_y
+                            print(f"[BOSS] Found platform at Y={boss_y} (distance from player: {abs(boss_y - player.rect.centery)}px)")
+                        else:
+                            # Không tìm thấy - tìm platform gần nhất bất kỳ
+                            print(f"[BOSS WARNING] No platform near player, searching globally...")
+                            for _, platform_rect in platforms:
+                                if nearest_platform_y is None or abs(platform_rect.top - player.rect.centery) < abs(nearest_platform_y - player.rect.centery):
+                                    nearest_platform_y = platform_rect.top
+                            
+                            if nearest_platform_y:
+                                boss_y = nearest_platform_y
+                                print(f"[BOSS] Found global platform at Y={boss_y}")
+                            else:
+                                boss_y = player.rect.centery
+                                print(f"[BOSS ERROR] No platform found at all! Using player Y={boss_y}")
+                        
+                        print(f"[BOSS] Calculating spawn position...")
+                        print(f"[BOSS] Player X: {player.rect.centerx}, Boss offset: +{offset}")
+                        print(f"[BOSS] Boss will spawn at: ({boss_x}, {boss_y})")
+                        
+                        boss_instance = create_enemy("Troll1", x=boss_x, y=boss_y)
+                        enemies.append(boss_instance)
+                        boss_spawned = True
+                        boss_spawn_message_timer = boss_spawn_message_duration  # Bật thông báo
+                        
+                        distance_x = boss_x - player.rect.centerx
+                        distance_y = abs(boss_y - player.rect.centery)
+                        print(f"[BOSS] ✅ TROLL BOSS spawned successfully!")
+                        print(f"[BOSS] Boss position: ({boss_x}, {boss_y})")
+                        print(f"[BOSS] Player position: ({player.rect.centerx}, {player.rect.centery})")
+                        print(f"[BOSS] Distance X: {distance_x} pixels, Distance Y: {distance_y} pixels")
+                        if distance_y < 500:
+                            print(f"[BOSS] Boss is on same level as player!")
+                        else:
+                            print(f"[BOSS] Boss is on different level - navigate to Y={boss_y}")
+                        print(f"{'='*50}\n")
+                        
+                        # Play boss spawn sound if available
+                        try:
+                            sound_manager.play_sound("boss_spawn")
+                        except:
+                            pass
+                            
+                    except Exception as e:
+                        print(f"[ERROR] Failed to spawn Boss: {e}")
+                        import traceback
+                        traceback.print_exc()
+
         # Remove dead enemies from the list to avoid further processing
         enemies = [en for en in enemies if not getattr(en, "dead", False)]
+
+        # Check if boss is dead and spawn next stage
+        if boss_instance and getattr(boss_instance, "dead", False) and current_stage < len(STAGES):
+            print(f"Boss defeated! Stage {current_stage + 1} completed!")
+            current_stage += 1
+            if current_stage < len(STAGES):
+                print(f"Spawning {STAGES[current_stage]['name']}...")
+                # Show NEW stage notification - VERY LONG
+                stage_notification = f"{STAGES[current_stage]['name'].upper()} - {STAGES[current_stage]['enemy_count']} ENEMIES!"
+                stage_notification_type = "new_stage"
+                stage_notification_timer = 10.0  # 10 giây
+                
+                # Override spawn center to player's current position for easier testing
+                STAGES[current_stage]['spawn_center'] = (player.rect.centerx, player.rect.centery)
+                print(f"[STAGE] Player position: ({player.rect.centerx}, {player.rect.centery})")
+                new_enemies, new_enemy_ids = spawn_stage_enemies(current_stage)
+                enemies = new_enemies  # Replace enemies with new stage enemies
+                initial_enemies_ids = new_enemy_ids  # Reset to only new stage enemies
+                boss_spawned = False
+                boss_instance = None
+            else:
+                print("All stages completed! You win!")
+                # Show VICTORY notification
+                stage_notification = "VICTORY! ALL STAGES COMPLETED!"
+                stage_notification_type = "victory"
+                stage_notification_timer = 15.0  # 15 giây để tận hưởng chiến thắng
+                game_won = True  # Mark game as won
 
         # Scale ra màn hình
         scaled_surface = pygame.transform.scale(render_surface, (WIDTH, HEIGHT))
@@ -520,6 +733,219 @@ def run_game_session(screen, selected_char):
             (0, 0, 0),
         )
         screen.blit(hint_text, (10, 40))
+        
+        # Hiển thị thông tin về enemies và boss
+        if not boss_spawned:
+            # Count alive initial enemies
+            current_ids = [id(e) for e in enemies if not getattr(e, "dead", False)]
+            alive_initial = sum(1 for eid in initial_enemies_ids if eid in current_ids)
+            enemies_remaining = alive_initial
+            
+            enemy_info_font = pygame.font.SysFont("Arial", 28, bold=True)
+            enemy_text = enemy_info_font.render(
+                f"Enemies: {enemies_remaining}/{len(initial_enemies_ids)}",
+                True,
+                (255, 0, 0) if enemies_remaining > 0 else (0, 255, 0)
+            )
+            text_rect = enemy_text.get_rect(center=(WIDTH // 2, 50))
+            # Draw black outline
+            for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, 1), (-1, 1), (1, -1)]:
+                outline = enemy_info_font.render(
+                    f"Enemies: {enemies_remaining}/{len(initial_enemies_ids)}",
+                    True,
+                    (0, 0, 0)
+                )
+                screen.blit(outline, (text_rect.x + dx, text_rect.y + dy))
+            screen.blit(enemy_text, text_rect)
+        else:
+            # Boss spawned - show boss warning
+            boss_font = pygame.font.SysFont("Arial", 32, bold=True)
+            boss_text = boss_font.render("⚠ BOSS BATTLE ⚠", True, (255, 100, 0))
+            text_rect = boss_text.get_rect(center=(WIDTH // 2, 50))
+            # Flashing effect
+            import time
+            if int(time.time() * 2) % 2 == 0:
+                # Draw black outline
+                for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
+                    outline = boss_font.render("⚠ BOSS BATTLE ⚠", True, (0, 0, 0))
+                    screen.blit(outline, (text_rect.x + dx, text_rect.y + dy))
+                screen.blit(boss_text, text_rect)
+            
+        # Hiển thị thông báo chuyển stage - ĐẸP VÀ RÕ RÀNG
+        if stage_notification_timer > 0:
+            stage_notification_timer -= dt
+            
+            # VICTORY SCREEN - HOÀNH TRÁNG!
+            if stage_notification_type == "victory":
+                import time
+                
+                # Full screen overlay với gradient
+                overlay = pygame.Surface((WIDTH, HEIGHT))
+                overlay.set_alpha(200)
+                # Gradient từ đen sang vàng (giả lập bằng fill đơn giản)
+                overlay.fill((20, 20, 40))  # Xanh đen tối
+                screen.blit(overlay, (0, 0))
+                
+                # Hiệu ứng phóng to/thu nhỏ
+                time_elapsed = 15.0 - stage_notification_timer
+                pulse = 1.0 + 0.15 * math.sin(time_elapsed * 3)  # Nhịp đập
+                
+                # VICTORY text - CỰC LỚN
+                victory_font = pygame.font.SysFont("Arial", int(100 * pulse), bold=True)
+                
+                # Rainbow color effect (màu chuyển động)
+                hue_shift = (time_elapsed * 50) % 360
+                if hue_shift < 120:
+                    victory_color = (255, 215, 0)  # Gold
+                elif hue_shift < 240:
+                    victory_color = (255, 140, 0)  # Orange
+                else:
+                    victory_color = (255, 215, 0)  # Gold
+                
+                victory_text = victory_font.render(" VICTORY !", True, victory_color)
+                victory_rect = victory_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 80))
+                
+                # Vẽ glow effect (nhiều layer shadow màu vàng)
+                for i in range(10, 0, -1):
+                    glow_alpha = int(100 / i)
+                    glow = victory_font.render("VICTORY!", True, (255, 255, 100))
+                    glow_surface = pygame.Surface(glow.get_size(), pygame.SRCALPHA)
+                    glow.set_alpha(glow_alpha)
+                    screen.blit(glow, (victory_rect.x - i, victory_rect.y - i))
+                
+                # Shadow đen dày
+                for offset in range(8, 0, -1):
+                    shadow = victory_font.render(" VICTORY! ", True, (0, 0, 0))
+                    screen.blit(shadow, (victory_rect.x + offset, victory_rect.y + offset))
+                
+                # Outline vàng kim cực dày
+                outline_size = 6
+                for dx in range(-outline_size, outline_size + 1):
+                    for dy in range(-outline_size, outline_size + 1):
+                        if dx*dx + dy*dy <= outline_size*outline_size and (dx != 0 or dy != 0):
+                            outline = victory_font.render(" VICTORY! ", True, (255, 223, 0))
+                            screen.blit(outline, (victory_rect.x + dx, victory_rect.y + dy))
+                
+                # Text chính
+                screen.blit(victory_text, victory_rect)
+                
+                # Subtitle với animation
+                subtitle_font = pygame.font.SysFont("Arial", 48, bold=True)
+                subtitle_pulse = 1.0 + 0.1 * math.sin(time_elapsed * 4)
+                subtitle_font_animated = pygame.font.SysFont("Arial", int(48 * subtitle_pulse), bold=True)
+                
+                subtitle_text = subtitle_font_animated.render("ALL STAGES COMPLETED!", True, (255, 255, 255))
+                subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20))
+                
+                # Shadow cho subtitle
+                for offset in [4, 3, 2]:
+                    sub_shadow = subtitle_font_animated.render("ALL STAGES COMPLETED!", True, (0, 0, 0))
+                    screen.blit(sub_shadow, (subtitle_rect.x + offset, subtitle_rect.y + offset))
+                
+                # Outline cho subtitle
+                for dx, dy in [(-3, 0), (3, 0), (0, -3), (0, 3), (-2, -2), (2, 2), (-2, 2), (2, -2)]:
+                    sub_outline = subtitle_font_animated.render("ALL STAGES COMPLETED!", True, (50, 50, 50))
+                    screen.blit(sub_outline, (subtitle_rect.x + dx, subtitle_rect.y + dy))
+                
+                screen.blit(subtitle_text, subtitle_rect)
+                
+                # Hướng dẫn chơi lại - nhấp nháy để thu hút sự chú ý
+                action_font = pygame.font.SysFont("Arial", 32, bold=True)
+                
+                # Hiệu ứng nhấp nháy
+                blink = int(time_elapsed * 2) % 2 == 0
+                if blink:
+                    action_text = action_font.render("Press R to Play Again or Q to Quit", True, (255, 255, 255))
+                    action_rect = action_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 100))
+                    
+                    # Shadow đen
+                    for offset in [3, 2, 1]:
+                        action_shadow = action_font.render("Press R to Play Again or Q to Quit", True, (0, 0, 0))
+                        screen.blit(action_shadow, (action_rect.x + offset, action_rect.y + offset))
+                    
+                    # Outline
+                    for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, 1), (-1, 1), (1, -1)]:
+                        action_outline = action_font.render("Press R to Play Again or Q to Quit", True, (100, 100, 100))
+                        screen.blit(action_outline, (action_rect.x + dx, action_rect.y + dy))
+                    
+                    screen.blit(action_text, action_rect)
+                
+                # Vẽ các ngôi sao rơi (particles)
+                import random
+                for i in range(20):
+                    star_x = (WIDTH // 2) + random.randint(-400, 400)
+                    star_y = int((HEIGHT // 2 - 200) + (time_elapsed * 100 + i * 50) % HEIGHT)
+                    star_size = random.randint(3, 8)
+                    star_alpha = random.randint(150, 255)
+                    star_color = random.choice([(255, 215, 0), (255, 255, 100), (255, 200, 50)])
+                    pygame.draw.circle(screen, star_color, (star_x, star_y), star_size)
+                
+            else:
+                # Normal stage notifications (cleared, new_stage)
+                # Font đẹp và lớn
+                stage_font = pygame.font.SysFont("Arial", 72, bold=True)
+                
+                # Chọn màu theo loại thông báo
+                if stage_notification_type == "cleared":
+                    # CLEARED: cam nâu viền đen
+                    main_color = (204, 85, 0)  # Saddle brown - cam nâu
+                    outline_color = (0, 0, 0)  # Đen
+                    subtitle_msg = "BOSS IS COMING CAREFULLY!"
+                    subtitle_color = (220, 20, 60)  # Crimson - đỏ
+                else:  # new_stage
+                    # NEW STAGE: cam đất
+                    main_color = (204, 85, 0)  # Burnt orange
+                    outline_color = (0, 0, 0)  # Đen
+                    subtitle_msg = "GET READY!"
+                    subtitle_color = (255, 255, 255)  # Trắng
+                
+                stage_text = stage_font.render(stage_notification, True, main_color)
+                stage_rect = stage_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+                
+                # Vẽ background xanh trắng rất mờ nhạt
+                bg_padding = 30
+                bg_rect = pygame.Rect(
+                    stage_rect.x - bg_padding,
+                    stage_rect.y - bg_padding - 20,
+                    stage_rect.width + bg_padding * 2,
+                    stage_rect.height + bg_padding * 2 + 80  # Thêm chỗ cho subtitle
+                )
+                bg_surface = pygame.Surface((bg_rect.width, bg_rect.height))
+                bg_surface.set_alpha(80)  # Rất mờ nhạt
+                bg_surface.fill((176, 224, 230))  # Powder blue - xanh trắng nhạt
+                screen.blit(bg_surface, bg_rect)
+                
+                # Vẽ shadow đen để tạo depth
+                shadow_offset = 4
+                shadow = stage_font.render(stage_notification, True, (0, 0, 0))
+                screen.blit(shadow, (stage_rect.x + shadow_offset, stage_rect.y + shadow_offset))
+                
+                # Vẽ outline đen
+                outline_size = 4
+                for dx in range(-outline_size, outline_size + 1):
+                    for dy in range(-outline_size, outline_size + 1):
+                        if dx*dx + dy*dy <= outline_size*outline_size and (dx != 0 or dy != 0):
+                            outline = stage_font.render(stage_notification, True, outline_color)
+                            screen.blit(outline, (stage_rect.x + dx, stage_rect.y + dy))
+                
+                # Vẽ text chính
+                screen.blit(stage_text, stage_rect)
+                
+                # Thêm dòng subtitle
+                subtitle_font = pygame.font.SysFont("Arial", 36, bold=True)
+                subtitle_text = subtitle_font.render(subtitle_msg, True, subtitle_color)
+                subtitle_rect = subtitle_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 40))
+                
+                # Shadow cho subtitle
+                subtitle_shadow = subtitle_font.render(subtitle_msg, True, (0, 0, 0))
+                screen.blit(subtitle_shadow, (subtitle_rect.x + 2, subtitle_rect.y + 2))
+                
+                # Outline đen cho subtitle
+                for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, 1), (-1, 1), (1, -1)]:
+                    subtitle_outline = subtitle_font.render(subtitle_msg, True, (0, 0, 0))
+                    screen.blit(subtitle_outline, (subtitle_rect.x + dx, subtitle_rect.y + dy))
+                
+                screen.blit(subtitle_text, subtitle_rect)
 
         # Hiển thị thanh HP đồ họa và tọa độ người chơi (world coordinates)
         try:

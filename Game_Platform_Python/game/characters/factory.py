@@ -7,6 +7,22 @@ from game.characters.registry import get_skill
 
 # Animation cache để tránh load lại sprite nhiều lần
 _animation_cache = {}
+_preloaded_enemies = {}  # Cache cho enemy instances đã tạo sẵn
+
+
+def preload_enemies(enemy_types: List[str]):
+    """Preload tất cả enemy types để tránh lag khi spawn"""
+    print(f"[PRELOAD] Loading {len(enemy_types)} enemy types...")
+    for enemy_type in enemy_types:
+        if enemy_type not in _preloaded_enemies:
+            try:
+                # Tạo 1 instance để force load animations vào cache
+                temp_enemy = create_player(enemy_type, 0, 0)
+                print(f"[PRELOAD] ✓ {enemy_type} cached")
+                # Không lưu instance, chỉ cần animations đã vào cache
+            except Exception as e:
+                print(f"[PRELOAD] ✗ {enemy_type} failed: {e}")
+    print(f"[PRELOAD] Complete! Cache size: {len(_animation_cache)}")
 
 
 def _list_character_dirs(base_path: str) -> List[str]:
