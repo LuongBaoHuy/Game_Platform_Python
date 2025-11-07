@@ -38,6 +38,17 @@ class CharacterSelectMenu:
                 ),
                 "description": "A fire wizard controlling fire and heat",
             },
+            "skeleton": {
+                "name": "Skeleton Warrior",
+                "preview_path": os.path.join(
+                    "assets",
+                    "characters",
+                    "skeleton",
+                    "SkeletonIdle",
+                    "skeleton-00_idle_00.png",
+                ),
+                "description": "A skeletal warrior with dark magic abilities",
+            },
         }
 
         self.character_previews = {}
@@ -54,11 +65,9 @@ class CharacterSelectMenu:
                 if os.path.exists(preview_path):
                     print(f"Loading preview from: {preview_path}")
                     img = pygame.image.load(preview_path).convert_alpha()
-                    # Scale to reasonable preview size
-                    scale = 0.3  # Giảm kích thước xuống rất nhỏ
-                    width = int(300 * scale)
-                    height = int(300 * scale)
-                    img = pygame.transform.scale(img, (width, height))
+                    # Đảm bảo tất cả nhân vật có cùng kích thước hiển thị
+                    uniform_size = (150, 150)  # Kích thước chuẩn cho tất cả
+                    img = pygame.transform.scale(img, uniform_size)
                     self.character_previews[char_id] = img
                 else:
                     print(f"Could not find preview image at: {preview_path}")
@@ -87,6 +96,13 @@ class CharacterSelectMenu:
                             "firewizard",
                             "FireWizardIdle",
                         ),
+                        "skeleton": os.path.join(
+                            project_root,
+                            "assets",
+                            "characters",
+                            "skeleton",
+                            "SkeletonIdle",
+                        ),
                     }
 
                     idle_folder = idle_paths.get(char_id)
@@ -104,11 +120,9 @@ class CharacterSelectMenu:
                                 fallback_path = os.path.join(idle_folder, files[0])
                                 print(f"Trying fallback image: {fallback_path}")
                                 img = pygame.image.load(fallback_path).convert_alpha()
-                                width = int(
-                                    300 * 0.5
-                                )  # Giảm kích thước của fallback image
-                                height = int(300 * 0.5)
-                                img = pygame.transform.scale(img, (width, height))
+                                # Đảm bảo fallback cũng có cùng kích thước
+                                uniform_size = (150, 150)  # Kích thước chuẩn cho tất cả
+                                img = pygame.transform.scale(img, uniform_size)
                                 self.character_previews[char_id] = img
                                 print(
                                     f"Successfully loaded fallback image for {char_id}"
@@ -141,7 +155,7 @@ class CharacterSelectMenu:
             self.desc_font = pygame.font.Font(None, 44)
 
             # Tạo các nút chọn nhân vật
-        button_spacing = 200  # Khoảng cách giữa các nút
+        button_spacing = 250  # Tăng khoảng cách giữa các nút để chứa 3 nhân vật
         center_x = self.w // 2
 
         self.char_buttons = []
@@ -151,6 +165,12 @@ class CharacterSelectMenu:
                 "item": MenuItem(
                     "Blue Wizard", (center_x - button_spacing, self.button_y)
                 ),
+            }
+        )
+        self.char_buttons.append(
+            {
+                "id": "skeleton",
+                "item": MenuItem("Skeleton", (center_x, self.button_y)),
             }
         )
         self.char_buttons.append(
@@ -191,22 +211,28 @@ class CharacterSelectMenu:
     def draw_preview(self, char_id):
         if char_id in self.character_previews:
             img = self.character_previews[char_id]
-            rect = img.get_rect(center=(self.w // 2, self.preview_y))
 
-            # Vẽ khung cho preview
-            padding = 20
+            # Tạo khung cố định cho tất cả nhân vật
+            frame_width = 200
+            frame_height = 200
             frame_rect = pygame.Rect(
-                rect.x - padding,
-                rect.y - padding,
-                rect.width + padding * 2,
-                rect.height + padding * 2,
+                (self.w // 2) - (frame_width // 2),
+                self.preview_y - (frame_height // 2),
+                frame_width,
+                frame_height,
             )
+
+            # Center image trong khung cố định
+            rect = img.get_rect(center=(self.w // 2, self.preview_y))
 
             # Draw glowing effect if this is the selected character
             if char_id == self.selected_character:
-                glow_color = (
-                    (100, 200, 255) if char_id == "bluewizard" else (255, 150, 50)
-                )
+                if char_id == "bluewizard":
+                    glow_color = (100, 200, 255)
+                elif char_id == "skeleton":
+                    glow_color = (200, 200, 200)  # Silver/gray glow for skeleton
+                else:  # firewizard
+                    glow_color = (255, 150, 50)
                 glow_surf = pygame.Surface(
                     (frame_rect.width + 40, frame_rect.height + 40), pygame.SRCALPHA
                 )
