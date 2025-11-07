@@ -163,7 +163,8 @@ class Menu:
         y0 = self.h // 2
         self.items = [
             MenuItem("START GAME", (self.w // 2, y0)),
-            MenuItem("EXIT", (self.w // 2, y0 + 70)),
+            MenuItem("SETTINGS", (self.w // 2, y0 + 70)),
+            MenuItem("EXIT", (self.w // 2, y0 + 140)),
         ]
         self._last_hovered = None
 
@@ -202,12 +203,20 @@ class Menu:
                             if self.sfx_click:
                                 self.sfx_click.play()
 
-                            # Stop menu music before returning
-                            self.sound_manager.stop_music()
-
                             if it.text == "EXIT":
+                                # Stop menu music before exiting
+                                self.sound_manager.stop_music()
                                 return "exit"
+                            elif it.text == "SETTINGS":
+                                # Show settings menu
+                                settings_menu = SettingsMenu(
+                                    self.screen, self.sound_manager
+                                )
+                                settings_menu.run()
+                                # Continue in menu loop after settings
                             else:
+                                # Stop menu music before starting game
+                                self.sound_manager.stop_music()
                                 return "start"
 
             # hover detection + hover sound
@@ -235,6 +244,168 @@ class Menu:
             pygame.display.flip()
 
         return "exit"
+
+
+class SettingsMenu:
+    def __init__(self, screen, sound_manager):
+        self.screen = screen
+        self.sound_manager = sound_manager
+        self.clock = pygame.time.Clock()
+        self.w, self.h = screen.get_width(), screen.get_height()
+
+        # Fonts
+        self.title_font = load_font("SVN-Determination.ttf", 72)
+        self.label_font = load_font("SVN-Determination.ttf", 40)
+        self.value_font = load_font("SVN-Determination.ttf", 36)
+
+        # Colors
+        self.bg_color = (20, 30, 45)
+        self.title_color = (255, 230, 150)
+        self.label_color = (200, 235, 255)
+        self.value_color = (255, 255, 255)
+        self.slider_color = (100, 150, 200)
+        self.slider_handle_color = (255, 255, 255)
+
+        # Volume settings (0.0 to 1.0)
+        self.music_volume = self.sound_manager.music_volume
+        self.sfx_volume = self.sound_manager.sound_volume
+
+        # Slider properties
+        self.slider_width = 300
+        self.slider_height = 20
+        self.handle_radius = 12
+
+        # Dragging state
+        self.dragging_music = False
+        self.dragging_sfx = False
+
+        # Sound effects
+        self.sfx_click = safe_sound(os.path.join(SFX_DIR, "click.wav"))
+        self.sfx_hover = safe_sound(os.path.join(SFX_DIR, "hover.wav"))
+
+    def draw_slider(self, surface, x, y, value, label):
+        """Draw a volume slider with label and value display"""
+        # Label
+        label_surf = self.label_font.render(label, True, self.label_color)
+        label_rect = label_surf.get_rect(midright=(x - 20, y))
+        surface.blit(label_surf, label_rect)
+
+        # Slider track
+        track_rect = pygame.Rect(
+            x, y - self.slider_height // 2, self.slider_width, self.slider_height
+        )
+        pygame.draw.rect(surface, self.slider_color, track_rect)
+        pygame.draw.rect(surface, (255, 255, 255), track_rect, 2)
+
+        # Slider handle
+        handle_x = x + int(value * self.slider_width)
+        pygame.draw.circle(
+            surface, self.slider_handle_color, (handle_x, y), self.handle_radius
+        )
+        pygame.draw.circle(surface, (0, 0, 0), (handle_x, y), self.handle_radius, 2)
+
+        # Value percentage
+        value_text = f"{int(value * 100)}%"
+        value_surf = self.value_font.render(value_text, True, self.value_color)
+        value_rect = value_surf.get_rect(midleft=(x + self.slider_width + 20, y))
+        surface.blit(value_surf, value_rect)
+
+        return track_rect
+
+    def handle_slider_input(self, mouse_pos, mouse_pressed, track_rect, current_value):
+        """Handle mouse input for a slider and return new value"""
+        if track_rect.collidepoint(mouse_pos):
+            if mouse_pressed:
+                # Calculate new value based on mouse position
+                relative_x = mouse_pos[0] - track_rect.x
+                new_value = max(0.0, min(1.0, relative_x / self.slider_width))
+                return new_value, True
+        return current_value, False
+
+    def run(self):
+        running = True
+
+        while running:
+            dt_ms = self.clock.tick(60)
+            mouse_pos = pygame.mouse.get_pos()
+            mouse_pressed = pygame.mouse.get_pressed()[0]
+
+            # Handle events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if self.sfx_click:
+                            self.sfx_click.play()
+                        running = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left click
+                        if self.sfx_click:
+                            self.sfx_click.play()
+
+            # Update dragging state
+            if not mouse_pressed:
+                self.dragging_music = False
+                self.dragging_sfx = False
+
+            # Clear screen
+            self.screen.fill(self.bg_color)
+
+            # Title
+            title_surf = self.title_font.render("SETTINGS", True, self.title_color)
+            title_rect = title_surf.get_rect(center=(self.w // 2, self.h // 4))
+            self.screen.blit(title_surf, title_rect)
+
+            # Music volume slider
+            music_y = self.h // 2 - 50
+            music_track = self.draw_slider(
+                self.screen,
+                self.w // 2 - self.slider_width // 2,
+                music_y,
+                self.music_volume,
+                "MUSIC",
+            )
+
+            # SFX volume slider
+            sfx_y = self.h // 2 + 50
+            sfx_track = self.draw_slider(
+                self.screen,
+                self.w // 2 - self.slider_width // 2,
+                sfx_y,
+                self.sfx_volume,
+                "SFX",
+            )
+
+            # Handle slider interactions
+            if self.dragging_music or (
+                mouse_pressed and music_track.collidepoint(mouse_pos)
+            ):
+                new_volume, self.dragging_music = self.handle_slider_input(
+                    mouse_pos, mouse_pressed, music_track, self.music_volume
+                )
+                if new_volume != self.music_volume:
+                    self.music_volume = new_volume
+                    self.sound_manager.set_music_volume(self.music_volume)
+
+            if self.dragging_sfx or (
+                mouse_pressed and sfx_track.collidepoint(mouse_pos)
+            ):
+                new_volume, self.dragging_sfx = self.handle_slider_input(
+                    mouse_pos, mouse_pressed, sfx_track, self.sfx_volume
+                )
+                if new_volume != self.sfx_volume:
+                    self.sfx_volume = new_volume
+                    self.sound_manager.set_sound_volume(self.sfx_volume)
+
+            # Back button hint
+            back_text = self.label_font.render(
+                "Press ESC to return", True, (150, 150, 150)
+            )
+            back_rect = back_text.get_rect(center=(self.w // 2, self.h - 100))
+            self.screen.blit(back_text, back_rect)
+
+            pygame.display.flip()
 
 
 # chạy thử độc lập

@@ -1,6 +1,6 @@
 import pygame
 import sys
-from game.menu import MenuItem
+from game.menu import MenuItem, SettingsMenu
 import os, math
 
 
@@ -52,7 +52,7 @@ class PauseMenu:
         self.vignette = _vignette((self.w, self.h), 200)
 
         # Menu items
-        self.items = ["CONTINUE", "MAIN MENU", "EXIT"]
+        self.items = ["CONTINUE", "PLAY AGAIN", "SETTINGS", "MAIN MENU", "EXIT"]
         self.index = 0
 
         # Fade
@@ -71,6 +71,19 @@ class PauseMenu:
         rect = render.get_rect(center=(self.w // 2, y))
         surface.blit(render, rect)
         return rect
+
+    def _show_settings(self):
+        """Show settings menu from pause menu"""
+        try:
+            # Get sound manager from somewhere - we'll need to import it
+            from game.sound_manager import SoundManager
+
+            sound_manager = SoundManager()
+
+            settings_menu = SettingsMenu(self.screen, sound_manager)
+            settings_menu.run()
+        except Exception as e:
+            print(f"Error showing settings: {e}")
 
     def run(self):
         clock = pygame.time.Clock()
@@ -127,6 +140,11 @@ class PauseMenu:
                         selected_item = self.items[self.index]
                         if selected_item == "CONTINUE":
                             return "continue"
+                        elif selected_item == "PLAY AGAIN":
+                            return "play_again"
+                        elif selected_item == "SETTINGS":
+                            self._show_settings()
+                            # Continue in pause menu loop after settings
                         elif selected_item == "MAIN MENU":
                             return "main_menu"
                         else:
@@ -146,6 +164,11 @@ class PauseMenu:
                     selected_item = self.items[self.index]
                     if selected_item == "CONTINUE":
                         return "continue"
+                    elif selected_item == "PLAY AGAIN":
+                        return "play_again"
+                    elif selected_item == "SETTINGS":
+                        self._show_settings()
+                        # Continue in pause menu loop after settings
                     elif selected_item == "MAIN MENU":
                         return "main_menu"
                     else:

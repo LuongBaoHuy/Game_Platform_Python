@@ -28,25 +28,12 @@ except Exception:
 # Main Game
 # ===============================
 def run_game():
-    """Run a single game session and return the result"""
-    pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Platform từ Tiled (Zoom camera + FPS)")
+    """Legacy function - redirects to main for compatibility"""
+    main()
+
+def run_game_session(screen, selected_char):
+    """Run a single game session with the given character and return the result"""
     clock = pygame.time.Clock()
-
-    # Show menu
-    menu = Menu(screen)
-    menu_result = menu.run()
-
-    if menu_result == "exit":
-        return "exit"
-
-    # Show character selection screen
-    char_select = CharacterSelectMenu(screen)
-    selected_char = char_select.run()
-
-    if selected_char is None:
-        return "exit"
 
     # Initialize sound system
     from game.sound_manager import SoundManager
@@ -265,6 +252,9 @@ def run_game():
                     elif pause_result == "main_menu":
                         # Return to main menu
                         return "main_menu"
+                    elif pause_result == "play_again":
+                        # Restart the current game
+                        return "play_again"
                     # If continue, just resume the game loop
 
                 # If player died, allow respawn (R) or quit (Q)
@@ -710,13 +700,43 @@ def run_game():
 
 def main():
     """Main function that handles the game loop and menu navigation"""
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Platform từ Tiled (Zoom camera + FPS)")
+    
+    selected_char = None  # Keep track of selected character for play again
+    
     while True:
-        result = run_game()
+        # If no character selected or returning from main menu, show menu and character select
+        if selected_char is None:
+            # Show menu
+            menu = Menu(screen)
+            menu_result = menu.run()
+
+            if menu_result == "exit":
+                pygame.quit()
+                sys.exit()
+
+            # Show character selection screen
+            char_select = CharacterSelectMenu(screen)
+            selected_char = char_select.run()
+
+            if selected_char is None:
+                pygame.quit()
+                sys.exit()
+        
+        # Run the actual game with the selected character
+        result = run_game_session(screen, selected_char)
+        
         if result == "exit":
             pygame.quit()
             sys.exit()
         elif result == "main_menu":
-            # Continue the loop to restart from main menu
+            # Reset selected character to force menu/character select
+            selected_char = None
+            continue
+        elif result == "play_again":
+            # Keep the same character and restart game
             continue
         else:
             # Any other result, exit
