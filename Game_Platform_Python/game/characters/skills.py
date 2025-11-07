@@ -6,6 +6,7 @@ id using character metadata.
 """
 
 from typing import Dict, Any
+import pygame
 
 from game.characters import registry
 from game.config import SPEED
@@ -1168,3 +1169,882 @@ class FireExplosionSkill(SkillBase):
 
 
 registry.register_skill("fire_explosion", FireExplosionSkill)
+
+
+class MeleeAttackSkill(SkillBase):
+    """Melee attack skill that triggers attack animation and deals damage to nearby enemies."""
+
+    def __init__(
+        self,
+        cooldown=0.8,
+        damage=50,
+        attack_range=120,
+        animation_duration=0.4,
+        **kwargs,
+    ):
+        super().__init__(cooldown=cooldown, **kwargs)
+        self.damage = damage
+        self.attack_range = attack_range
+        self.animation_duration = animation_duration
+        self.attack_active = False
+        self.attack_timer = 0.0
+
+    def use(self, now: float, owner) -> bool:
+        """Activate melee attack."""
+        if not self.can_use(now):
+            return False
+
+        self.last_used = now
+        self.attack_active = True
+        self.attack_timer = self.animation_duration
+
+        # Save owner position for collision detection
+        if hasattr(owner, "rect"):
+            self._last_owner_pos = owner.rect.center
+
+        # Trigger attack animation
+        if hasattr(owner, "trigger_attack_animation"):
+            owner.trigger_attack_animation()
+
+        # Play attack sound
+        if hasattr(owner, "sound_manager"):
+            owner.sound_manager.play_sound("attack")
+
+        return True
+
+    def update(self, dt: float, owner):
+        """Update melee attack state."""
+        if self.attack_active:
+            self.attack_timer -= dt
+
+            # Check for damage on first frame of attack
+            if self.attack_timer > (self.animation_duration - dt):
+                self._deal_damage(owner)
+
+            if self.attack_timer <= 0:
+                self.attack_active = False
+
+    def _deal_damage(self, owner):
+        """Deal damage to enemies in attack range."""
+        if not hasattr(owner, "rect"):
+            return
+
+        # Create attack hitbox in front of player
+        attack_rect = pygame.Rect(
+            owner.rect.centerx - self.attack_range // 2,
+            owner.rect.centery - self.attack_range // 2,
+            self.attack_range,
+            self.attack_range,
+        )
+
+        # Check collision with enemies (if available in owner's context)
+        if hasattr(owner, "_nearby_enemies"):
+            for enemy in owner._nearby_enemies:
+                if hasattr(enemy, "rect") and hasattr(enemy, "take_damage"):
+                    if attack_rect.colliderect(enemy.rect):
+                        enemy.take_damage(self.damage)
+
+    def draw(self, surface, camera_x, camera_y):
+        """Draw visual effects for melee attack (optional)."""
+        # Could add slash effects or particle effects here
+        pass
+
+    def handle_collisions(self, enemies):
+        """Handle collision with enemies during active attack."""
+        if not self.attack_active:
+            return
+
+        # Deal damage to enemies in range during attack
+        for enemy in enemies:
+            if hasattr(enemy, "rect") and hasattr(enemy, "take_damage"):
+                # Create attack hitbox around player
+                if hasattr(self, "_last_owner_pos"):
+                    attack_rect = pygame.Rect(
+                        self._last_owner_pos[0] - self.attack_range // 2,
+                        self._last_owner_pos[1] - self.attack_range // 2,
+                        self.attack_range,
+                        self.attack_range,
+                    )
+
+                    if attack_rect.colliderect(enemy.rect):
+                        enemy.take_damage(self.damage)
+
+
+registry.register_skill("melee_attack", MeleeAttackSkill)
+
+
+class BuffSkill(SkillBase):
+    """Buff skill that increases damage and speed for a duration with charging animation."""
+
+    def __init__(
+        self,
+        cooldown=8.0,
+        max_charge_time=5.0,
+        buff_duration=6.0,
+        base_damage_multiplier=1.2,
+        max_damage_multiplier=2.0,
+        base_speed_multiplier=1.2,
+        max_speed_multiplier=1.8,
+        **kwargs,
+    ):
+        super().__init__(cooldown=cooldown, **kwargs)
+        self.max_charge_time = max_charge_time
+        self.buff_duration = buff_duration
+        self.base_damage_multiplier = base_damage_multiplier
+        self.max_damage_multiplier = max_damage_multiplier
+        self.base_speed_multiplier = base_speed_multiplier
+        self.max_speed_multiplier = max_speed_multiplier
+        # State management
+        self.is_charging = False
+        self.is_buffed = False
+        self.charge_timer = 0.0
+        self.buff_timer = 0.0
+        self.charge_power = 0.0  # 0.0 to 1.0 based on charge time
+
+        # Animation timer for smooth visual effects
+        self.frame_timer = 0.05
+
+        # Load buff animation frames (delay loading until needed)
+        self._frames_loaded = False
+
+        # Original stats storage
+        self._original_damage = None
+        self._original_speed = None
+
+    # No longer needed - using code-based visual effects instead
+
+    def use(self, now: float, owner) -> bool:
+        """Start or continue charging the buff."""
+        if self.is_buffed or not self.can_use(now):
+            return False
+
+        # Check if owner is moving - can't charge while moving
+        is_moving = False
+        if hasattr(owner, "vel_x") and hasattr(owner, "vel_y"):
+            is_moving = owner.vel_x != 0 or owner.vel_y != 0
+        elif hasattr(owner, "velocity"):
+            is_moving = owner.velocity.x != 0 or owner.velocity.y != 0
+
+        if is_moving:
+            # If we were charging and now moving, stop charging and restore speed
+            if self.is_charging:
+                self.is_charging = False
+                self.charge_timer = 0.0
+                # Restore original speed
+                if hasattr(owner, "speed") and self._original_speed is not None:
+                    owner.speed = self._original_speed
+                print("Charging stopped - character is moving")
+            return False
+
+        # Store original stats if first time charging
+        if not self.is_charging:
+            if hasattr(owner, "speed"):
+                self._original_speed = owner.speed
+
+            # Play charging sound
+            if hasattr(owner, "sound_manager"):
+                owner.sound_manager.play_sound("charge_skill")
+
+            print("Skeleton starts charging power... (Speed: N/A while charging)")
+
+        self.is_charging = True
+        return True
+
+    def release_charge(self, owner):
+        """Called when player releases the charge key."""
+        if not self.is_charging:
+            return
+
+        # Calculate charge power based on charge time
+        charge_time = min(self.charge_timer, self.max_charge_time)
+        self.charge_power = charge_time / self.max_charge_time
+
+        # Reset charging state and restore original speed
+        self.is_charging = False
+        self.charge_timer = 0.0
+
+        # Restore original speed before activating buff
+        if hasattr(owner, "speed") and self._original_speed is not None:
+            owner.speed = self._original_speed
+
+        self._activate_buff(owner)
+
+        print(f"Skeleton releases charge! Power: {self.charge_power:.1%}")
+
+    def update(self, dt: float, owner):
+        """Update buff skill state."""
+        # Store owner position for drawing
+        if hasattr(owner, "rect"):
+            self._owner_pos = owner.rect.center
+
+        # No need to load frames anymore - using code-based effects
+        # Update animation timer for smooth effects
+        if self.is_charging or self.is_buffed:
+            self.frame_timer += dt
+
+        # Handle charging state
+        if self.is_charging:
+            self.charge_timer += dt
+
+            # Force character to stop moving while charging
+            if hasattr(owner, "vel_x"):
+                owner.vel_x = 0
+            if (
+                hasattr(owner, "vel_y") and owner.vel_y > 0
+            ):  # Don't interfere with gravity
+                pass  # Let gravity handle vel_y
+
+            # Set speed to 0 while charging (character can't move)
+            if hasattr(owner, "speed") and self._original_speed is not None:
+                owner.speed = 0
+
+            # Auto-release at max charge time
+            if self.charge_timer >= self.max_charge_time:
+                self.release_charge(owner)
+
+        # Handle buffed state
+        elif self.is_buffed:
+            self.buff_timer -= dt
+
+            if self.buff_timer <= 0:
+                # Buff expired - restore original stats
+                self._deactivate_buff(owner)
+
+    def _activate_buff(self, owner):
+        """Activate the buff effect based on charge power."""
+        self.is_charging = False
+        self.is_buffed = True
+        self.buff_timer = self.buff_duration
+        self.last_used = (
+            pygame.time.get_ticks() / 1000.0
+        )  # Set last_used here for cooldown
+
+        # Calculate multipliers based on charge power
+        speed_mult = (
+            self.base_speed_multiplier
+            + (self.max_speed_multiplier - self.base_speed_multiplier)
+            * self.charge_power
+        )
+        damage_mult = (
+            self.base_damage_multiplier
+            + (self.max_damage_multiplier - self.base_damage_multiplier)
+            * self.charge_power
+        )
+
+        # Apply speed buff only when not charging
+        if hasattr(owner, "speed") and self._original_speed and not self.is_charging:
+            owner.speed = int(self._original_speed * speed_mult)
+
+        # Apply damage buff to melee attack
+        melee_skill = getattr(owner, "skills", {}).get("melee_attack")
+        if melee_skill and hasattr(melee_skill, "damage"):
+            if self._original_damage is None:
+                self._original_damage = melee_skill.damage
+            melee_skill.damage = int(self._original_damage * damage_mult)
+
+        # Play buff activation sound
+        if hasattr(owner, "sound_manager"):
+            owner.sound_manager.play_sound("attack")
+
+        # Display speed info - show N/A when charging
+        speed_display = (
+            "N/A"
+            if self.is_charging
+            else (owner.speed if hasattr(owner, "speed") else "N/A")
+        )
+
+        print(
+            f"Skeleton buffed ({self.charge_power:.1%} power)! Speed: {speed_display}, Damage: {melee_skill.damage if melee_skill else 'N/A'}"
+        )
+
+    def _deactivate_buff(self, owner):
+        """Deactivate the buff and restore original stats."""
+        self.is_buffed = False
+
+        # Restore original speed
+        if hasattr(owner, "speed") and self._original_speed:
+            owner.speed = self._original_speed
+
+        # Restore original damage
+        melee_skill = getattr(owner, "skills", {}).get("melee_attack")
+        if melee_skill and hasattr(melee_skill, "damage") and self._original_damage:
+            melee_skill.damage = self._original_damage
+
+        print("Skeleton buff expired - stats restored")
+
+    def draw(self, surface, camera_x, camera_y):
+        """Draw beautiful charging/buff effect around the player."""
+        if not (self.is_charging or self.is_buffed):
+            return
+
+        # We need owner position
+        if not hasattr(self, "_owner_pos"):
+            return
+
+        try:
+            center_x = int(self._owner_pos[0] - camera_x)
+            center_y = int(self._owner_pos[1] - camera_y)
+
+            if self.is_charging:
+                # Charging effect - growing energy circle with particles
+                charge_percent = min(self.charge_timer / self.max_charge_time, 1.0)
+
+                # Main charging circle - grows with charge time
+                base_radius = 20
+                charge_radius = int(base_radius + (charge_percent * 40))
+
+                # Color changes from yellow to red based on charge
+                red = int(255)
+                green = int(255 * (1.0 - charge_percent * 0.7))  # Fades from 255 to ~75
+                blue = int(50 + charge_percent * 50)  # Slight blue tint
+                charge_color = (red, green, blue)
+
+                # Pulsing effect
+                import math
+
+                pulse = math.sin(self.charge_timer * 8) * 0.3 + 0.7  # 0.4 to 1.0
+                pulse_radius = int(charge_radius * pulse)
+
+                # Outer glow ring
+                for i in range(5):
+                    alpha = int(60 - i * 10)
+                    glow_radius = pulse_radius + i * 8
+                    glow_surface = pygame.Surface(
+                        (glow_radius * 2 + 20, glow_radius * 2 + 20), pygame.SRCALPHA
+                    )
+                    pygame.draw.circle(
+                        glow_surface,
+                        (*charge_color, alpha),
+                        (glow_radius + 10, glow_radius + 10),
+                        glow_radius,
+                        3,
+                    )
+                    surface.blit(
+                        glow_surface,
+                        (center_x - glow_radius - 10, center_y - glow_radius - 10),
+                    )
+
+                # Inner solid circle
+                pygame.draw.circle(
+                    surface, charge_color, (center_x, center_y), pulse_radius, 3
+                )
+
+                # Energy particles around the circle
+                particle_count = int(8 + charge_percent * 12)  # 8 to 20 particles
+                for i in range(particle_count):
+                    angle = (i / particle_count) * 2 * math.pi + self.charge_timer * 2
+                    particle_radius = pulse_radius + 15
+                    px = center_x + int(math.cos(angle) * particle_radius)
+                    py = center_y + int(math.sin(angle) * particle_radius)
+
+                    # Particle size based on charge
+                    particle_size = int(2 + charge_percent * 4)
+                    pygame.draw.circle(surface, charge_color, (px, py), particle_size)
+
+                # Charge percentage text
+                if charge_percent > 0.1:  # Only show after some charging
+                    font = pygame.font.SysFont("Arial", 20, bold=True)
+                    charge_text = f"{int(charge_percent * 100)}%"
+                    text_surface = font.render(charge_text, True, (255, 255, 255))
+                    text_rect = text_surface.get_rect(
+                        center=(center_x, center_y - pulse_radius - 25)
+                    )
+
+                    # Text background for better visibility
+                    bg_rect = text_rect.inflate(10, 4)
+                    pygame.draw.rect(surface, (0, 0, 0, 150), bg_rect, border_radius=5)
+                    surface.blit(text_surface, text_rect)
+
+            elif self.is_buffed:
+                # Buffed state - continuous energy aura
+                buff_percent = 1.0 - (self.buff_timer / self.buff_duration)
+
+                # Rotating energy rings
+                ring_radius = 35
+                ring_count = 3
+
+                for ring in range(ring_count):
+                    angle_offset = self.buff_timer * 2 + (
+                        ring * 2.1
+                    )  # Different rotation speeds
+                    ring_color = (255, 100 + ring * 50, 50)
+                    alpha = int(120 - ring * 30)
+
+                    # Create ring surface with alpha
+                    ring_surface = pygame.Surface(
+                        (ring_radius * 2 + 20, ring_radius * 2 + 20), pygame.SRCALPHA
+                    )
+
+                    # Draw ring segments
+                    segment_count = 8
+                    for seg in range(segment_count):
+                        if seg % 2 == 0:  # Skip every other segment for dashed effect
+                            angle = angle_offset + (seg / segment_count) * 2 * math.pi
+                            seg_x = (
+                                ring_radius + 10 + int(math.cos(angle) * ring_radius)
+                            )
+                            seg_y = (
+                                ring_radius + 10 + int(math.sin(angle) * ring_radius)
+                            )
+                            pygame.draw.circle(
+                                ring_surface, (*ring_color, alpha), (seg_x, seg_y), 4
+                            )
+
+                    surface.blit(
+                        ring_surface,
+                        (center_x - ring_radius - 10, center_y - ring_radius - 10),
+                    )
+
+                # Central power indicator
+                power_color = (255, 150, 50)
+                power_radius = int(8 + self.charge_power * 12)
+                pygame.draw.circle(
+                    surface, power_color, (center_x, center_y), power_radius
+                )
+                pygame.draw.circle(
+                    surface, (255, 255, 255), (center_x, center_y), power_radius, 2
+                )
+
+        except Exception as e:
+            # Simple fallback
+            color = (255, 200, 0) if self.is_charging else (255, 100, 0)
+            radius = 25 if self.is_charging else 15
+            pygame.draw.circle(surface, color, (center_x, center_y), radius, 3)
+
+
+registry.register_skill("buff", BuffSkill)
+
+
+class EarthSlamSkill(SkillBase):
+    """Ultimate skill: Jump up and slam down with earth explosion and shockwave."""
+
+    def __init__(
+        self,
+        cooldown=15.0,
+        damage=120,
+        jump_height=200,
+        explosion_radius=150,
+        shockwave_radius=250,
+        animation_duration=1.5,
+        frames_path="assets/skill-effect/earth",
+        **kwargs,
+    ):
+        super().__init__(cooldown=cooldown, **kwargs)
+        self.damage = damage
+        self.jump_height = jump_height
+        self.explosion_radius = explosion_radius
+        self.shockwave_radius = shockwave_radius
+        self.animation_duration = animation_duration
+        self.frames_path = frames_path
+
+        # Animation state
+        self.frames = []
+        self.current_frame = 0
+        self.frame_timer = 0.0
+        self.frame_duration = animation_duration / 5  # 5 frames
+
+        # Skill phases
+        self.is_jumping = False
+        self.is_slamming = False
+        self.is_exploding = False
+        self.jump_timer = 0.0
+        self.slam_timer = 0.0
+        self.explosion_timer = 0.0
+
+        # Original position storage
+        self._original_y = None
+        self._target_y = None
+        self._slam_y = None
+
+        # Owner position for effects
+        self._owner_pos = None
+
+    def _load_frames(self):
+        """Load earth impact animation frames."""
+        if self.frames:
+            return  # Already loaded
+
+        try:
+            import os
+
+            print(f"🔍 Trying to load frames from: {self.frames_path}")
+
+            # Try both relative and absolute paths
+            possible_paths = [
+                self.frames_path,
+                os.path.abspath(self.frames_path),
+                "assets/skill-effect/earth",
+                os.path.join(os.getcwd(), "assets", "skill-effect", "earth"),
+            ]
+
+            for test_path in possible_paths:
+                print(f"   Testing path: {test_path}")
+                if os.path.exists(test_path):
+                    print(f"✅ Found path: {test_path}")
+
+                    # Load specific earth impact frames
+                    for i in range(
+                        16, 21
+                    ):  # Earth-Impact_16.png to Earth-Impact_20.png
+                        frame_path = os.path.join(test_path, f"Earth-Impact_{i}.png")
+                        print(f"      Checking frame: {frame_path}")
+                        if os.path.exists(frame_path):
+                            frame = pygame.image.load(frame_path).convert_alpha()
+                            # Scale frame for better visibility - made much larger
+                            scaled_frame = pygame.transform.scale(frame, (500, 500))
+                            self.frames.append(scaled_frame)
+                            print(f"      ✅ Loaded frame {i}")
+                        else:
+                            print(f"      ❌ Frame not found: {frame_path}")
+                    break
+                else:
+                    print(f"   ❌ Path not found: {test_path}")
+
+            print(f"🎯 Finally loaded {len(self.frames)} earth slam frames")
+
+        except Exception as e:
+            print(f"💥 Error loading earth slam frames: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    def use(self, now: float, owner) -> bool:
+        """Activate earth slam skill."""
+        if (
+            not self.can_use(now)
+            or self.is_jumping
+            or self.is_slamming
+            or self.is_exploding
+        ):
+            return False
+
+        # Load frames
+        self._load_frames()
+        print(f"Earth Slam frames loaded: {len(self.frames)}")
+
+        # Start jumping phase
+        self.is_jumping = True
+        self.jump_timer = 0.0
+
+        # Store original position
+        if hasattr(owner, "rect"):
+            self._original_y = owner.rect.centery
+            self._target_y = self._original_y - self.jump_height
+            self._slam_y = self._original_y
+            print(f"Jump: from Y={self._original_y} to Y={self._target_y}")
+
+        # Disable gravity/physics during skill
+        if hasattr(owner, "vel_y"):
+            owner.vel_y = 0
+        if hasattr(owner, "on_ground"):
+            owner.on_ground = False
+
+        # Play sound effect
+        if hasattr(owner, "sound_manager"):
+            owner.sound_manager.play_sound("attack")
+
+        self.last_used = now
+        print("🔥 SKELETON PERFORMS EARTH SLAM! 🔥")
+        return True
+
+    def update(self, dt: float, owner):
+        """Update earth slam skill phases."""
+        # Store owner position for drawing
+        if hasattr(owner, "rect"):
+            self._owner_pos = owner.rect.center
+
+        # Jumping phase
+        if self.is_jumping:
+            self.jump_timer += dt
+            jump_duration = 0.6  # Increased to 0.6 seconds to reach peak
+
+            if self.jump_timer < jump_duration:
+                # Move owner upward
+                if hasattr(owner, "rect") and self._target_y is not None:
+                    progress = self.jump_timer / jump_duration
+                    # Use easing for smooth jump
+                    ease_progress = 1 - (1 - progress) ** 2
+                    current_y = self._original_y - (self.jump_height * ease_progress)
+                    owner.rect.centery = int(current_y)
+
+                    print(
+                        f"🚀 Jumping: {progress:.1%} - Y: {owner.rect.centery} (target: {self._target_y})"
+                    )
+
+                    # Prevent all movement during jump
+                    if hasattr(owner, "vel_x"):
+                        owner.vel_x = 0
+                    if hasattr(owner, "vel_y"):
+                        owner.vel_y = 0  # Disable gravity
+            else:
+                # Start slamming phase
+                print("⬇️ SWITCHING TO SLAM PHASE!")
+                self.is_jumping = False
+                self.is_slamming = True
+                self.slam_timer = 0.0
+
+        # Slamming phase
+        elif self.is_slamming:
+            self.slam_timer += dt
+            slam_duration = 0.5  # Increased to 0.5 seconds to slam down
+
+            if self.slam_timer < slam_duration:
+                # Move owner downward rapidly
+                if hasattr(owner, "rect") and self._slam_y is not None:
+                    progress = self.slam_timer / slam_duration
+                    # Use easing for powerful slam
+                    ease_progress = progress**2
+                    current_y = self._target_y + (self.jump_height * ease_progress)
+                    owner.rect.centery = int(current_y)
+
+                    print(
+                        f"⬇️ Slamming: {progress:.1%} - Y: {owner.rect.centery} (ground: {self._slam_y})"
+                    )
+
+                    # Prevent all movement during slam
+                    if hasattr(owner, "vel_x"):
+                        owner.vel_x = 0
+                    if hasattr(owner, "vel_y"):
+                        owner.vel_y = 0  # Disable gravity
+            else:
+                # Ensure owner is back at ground level
+                if hasattr(owner, "rect") and self._slam_y is not None:
+                    owner.rect.centery = self._slam_y
+                    print(f"📍 Back to ground: Y={owner.rect.centery}")
+
+                # Start explosion phase
+                print("🔥 STARTING EXPLOSION PHASE!")
+                self.is_slamming = False
+                self.is_exploding = True
+                self.explosion_timer = 0.0
+                self.frame_timer = 0.0
+                self.current_frame = 0
+
+                # Deal damage to enemies in explosion radius
+                self._deal_explosion_damage(owner)
+
+                # Play explosion sound
+                if hasattr(owner, "sound_manager"):
+                    owner.sound_manager.play_sound("explosion")
+
+                print(
+                    f"💥 EARTH IMPACT! Massive explosion! Frames: {len(self.frames)} 💥"
+                )
+
+        # Explosion phase
+        elif self.is_exploding:
+            self.explosion_timer += dt
+            self.frame_timer += dt
+
+            progress = self.explosion_timer / self.animation_duration
+            print(
+                f"💥 Exploding: {progress:.1%} - Timer: {self.explosion_timer:.1f}/{self.animation_duration}"
+            )
+
+            # Update animation frame
+            if self.frames and self.frame_timer >= self.frame_duration:
+                self.frame_timer = 0.0
+                self.current_frame = (self.current_frame + 1) % len(self.frames)
+                print(f"🎬 Animation frame: {self.current_frame}/{len(self.frames)}")
+
+            # End explosion after animation duration
+            if self.explosion_timer >= self.animation_duration:
+                self.is_exploding = False
+                self.explosion_timer = 0.0
+
+                # Restore normal physics
+                if hasattr(owner, "on_ground"):
+                    owner.on_ground = True
+
+                print("✅ Earth slam complete! Physics restored.")
+
+    def _deal_explosion_damage(self, owner):
+        """Deal damage to all enemies within explosion radius."""
+        if not hasattr(owner, "rect"):
+            return
+
+        player_center = owner.rect.center
+        print(
+            f"🎯 Checking for enemies within {self.explosion_radius}px of {player_center}"
+        )
+
+        # Try to get enemies from various sources like other skills do
+        enemies = []
+
+        print(
+            f"🔍 Owner attributes: {[attr for attr in dir(owner) if 'enemy' in attr.lower() or 'enemies' in attr.lower()]}"
+        )
+
+        if hasattr(owner, "_nearby_enemies"):
+            enemies = owner._nearby_enemies
+            print(f"✅ Found _nearby_enemies: {len(enemies)} enemies")
+        elif hasattr(owner, "game_enemies"):
+            enemies = owner.game_enemies
+            print(f"✅ Found game_enemies: {len(enemies)} enemies")
+        elif hasattr(owner, "enemies"):
+            enemies = owner.enemies
+            print(f"✅ Found enemies: {len(enemies)} enemies")
+
+        if not enemies:
+            print("⚠️ No enemy list found on owner, will use handle_collisions instead")
+            return
+
+        damage_dealt = 0
+        for enemy in enemies:
+            if hasattr(enemy, "rect") and hasattr(enemy, "take_damage"):
+                enemy_center = enemy.rect.center
+                distance = (
+                    (player_center[0] - enemy_center[0]) ** 2
+                    + (player_center[1] - enemy_center[1]) ** 2
+                ) ** 0.5
+
+                if distance <= self.explosion_radius:
+                    # Deal massive damage to enemy
+                    enemy.take_damage(self.damage)
+                    damage_dealt += 1
+                    print(
+                        f"💥 EARTH SLAM HIT! Enemy at {enemy_center} (distance: {distance:.1f}) took {self.damage} damage!"
+                    )
+
+        if damage_dealt == 0:
+            print(f"💨 No enemies in explosion range (checked {len(enemies)} enemies)")
+        else:
+            print(f"🎯 EARTH SLAM hit {damage_dealt} enemies with devastating damage!")
+
+    def handle_collisions(self, enemies):
+        """Handle collision detection with enemies during explosion."""
+        if not self.is_exploding:
+            return
+
+        # Only check damage once at the start of explosion
+        if self.explosion_timer < 0.1:  # Within first 0.1 seconds of explosion
+            player_pos = self._owner_pos
+            if not player_pos:
+                return
+
+            damage_dealt = 0
+            for enemy in enemies:
+                if hasattr(enemy, "rect") and hasattr(enemy, "take_damage"):
+                    enemy_center = enemy.rect.center
+                    distance = (
+                        (player_pos[0] - enemy_center[0]) ** 2
+                        + (player_pos[1] - enemy_center[1]) ** 2
+                    ) ** 0.5
+
+                    if distance <= self.explosion_radius:
+                        enemy.take_damage(self.damage)
+                        damage_dealt += 1
+                        print(
+                            f"🔥 EARTH EXPLOSION damaged enemy at distance {distance:.1f}!"
+                        )
+
+            if damage_dealt > 0:
+                print(f"💥 Earth slam explosion hit {damage_dealt} enemies!")
+
+    def draw(self, surface, camera_x=0, camera_y=0):
+        """Draw earth slam effects."""
+        # Only draw if skill is actually active
+        if not self._owner_pos or not (
+            self.is_jumping or self.is_slamming or self.is_exploding
+        ):
+            return
+
+        # Debug only when skill is active
+        print(
+            f"🎨 EARTH SLAM DRAW! Owner: {self._owner_pos}, Camera: ({camera_x}, {camera_y})"
+        )
+        print(
+            f"   States: jump={self.is_jumping}, slam={self.is_slamming}, explode={self.is_exploding}"
+        )
+
+        try:
+            # Calculate screen position
+            screen_x = self._owner_pos[0] - camera_x
+            screen_y = self._owner_pos[1] - camera_y
+            print(f"   Screen position: ({screen_x}, {screen_y})")
+
+            # Draw charging indicator
+            if self.is_jumping or self.is_slamming:
+                # Draw indicator above character during jump/slam
+                indicator_y = screen_y - 50
+                pygame.draw.circle(
+                    surface, (255, 255, 0), (screen_x, indicator_y), 20, 3
+                )
+                pygame.draw.circle(surface, (255, 0, 0), (screen_x, indicator_y), 15, 2)
+
+            # Draw explosion effects
+            if self.is_exploding:
+                print(
+                    f"🔥 DRAWING EXPLOSION! Frame {self.current_frame}/{len(self.frames)} at ({screen_x}, {screen_y})"
+                )
+
+                # Draw basic explosion circle (fallback)
+                progress = self.explosion_timer / self.animation_duration
+                base_radius = int(self.explosion_radius * progress)
+                explosion_color = (255, 100, 0)  # Orange
+                pygame.draw.circle(
+                    surface, explosion_color, (screen_x, screen_y), base_radius, 8
+                )
+                print(f"   Drew base explosion circle: radius {base_radius}")
+
+                # Draw explosion animation frames if available
+                if self.frames and self.current_frame < len(self.frames):
+                    frame = self.frames[self.current_frame]
+                    frame_rect = frame.get_rect(center=(screen_x, screen_y))
+                    surface.blit(frame, frame_rect)
+                    print(
+                        f"   ✅ Drew Earth-Impact frame {self.current_frame} at {frame_rect}"
+                    )
+                else:
+                    # Large explosion circle as fallback
+                    pygame.draw.circle(
+                        surface,
+                        (255, 150, 0),
+                        (screen_x, screen_y),
+                        base_radius + 20,
+                        5,
+                    )
+                    print(f"   Drew fallback explosion circle")
+
+            # Draw shockwave effect
+            progress = self.explosion_timer / self.animation_duration
+            if progress < 0.8:  # Shockwave for first 80% of animation
+                shockwave_radius = int(
+                    self.explosion_radius
+                    + (self.shockwave_radius - self.explosion_radius) * progress
+                )
+
+                # Draw expanding shockwave rings
+                for i in range(3):
+                    ring_progress = (progress * 3 - i) % 1.0
+                    if ring_progress > 0:
+                        ring_radius = int(shockwave_radius * ring_progress)
+                        ring_alpha = int(255 * (1 - ring_progress))
+                        ring_color = (139, 69, 19, ring_alpha)  # Brown earth color
+
+                        # Create surface for alpha blending
+                        ring_surface = pygame.Surface(
+                            (ring_radius * 2, ring_radius * 2), pygame.SRCALPHA
+                        )
+                        pygame.draw.circle(
+                            ring_surface,
+                            ring_color,
+                            (ring_radius, ring_radius),
+                            ring_radius,
+                            3,
+                        )
+                        surface.blit(
+                            ring_surface,
+                            (screen_x - ring_radius, screen_y - ring_radius),
+                        )
+
+        except Exception as e:
+            # Simple fallback effect
+            if self.is_exploding:
+                progress = self.explosion_timer / self.animation_duration
+                radius = int(self.explosion_radius * progress)
+                color = (139, 69, 19)  # Brown
+                pygame.draw.circle(surface, color, (screen_x, screen_y), radius, 5)
+
+
+registry.register_skill("earth_slam", EarthSlamSkill)

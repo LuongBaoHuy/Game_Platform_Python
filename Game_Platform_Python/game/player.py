@@ -32,7 +32,10 @@ class Player:
         self.sound_manager = SoundManager()
 
         # Track previous key states
-        self._prev_key_states = {pygame.K_j: False}  # Track J key state
+        self._prev_key_states = {
+            pygame.K_j: False,
+            pygame.K_k: False,
+        }  # Track key states
 
         self.scale = scale if (scale is not None) else PLAYER_SCALE
         # Hitbox kích thước phóng to theo scale
@@ -44,7 +47,7 @@ class Player:
         self.visible = True  # For teleport skill invisibility
         self.teleport_lock = 0.0  # Lock movement briefly after teleport
         self.physics_lock = 0.0  # Lock physics updates briefly after teleport
-        
+
         # Double jump system
         self.max_jumps = 2  # Maximum number of jumps (1 ground + 1 air)
         self.jump_count = 0  # Current number of jumps used
@@ -218,7 +221,17 @@ class Player:
         elif SkillBase is not None and hasattr(dash_obj, "active"):
             dash_active = bool(getattr(dash_obj, "active", False))
 
-        if not dash_active:
+        # Check if buff skill is charging (skeleton can't move while charging)
+        buff_charging = False
+        buff = self.skills.get("buff")
+        if (
+            SkillBase is not None
+            and not isinstance(buff, dict)
+            and hasattr(buff, "is_charging")
+        ):
+            buff_charging = buff.is_charging
+
+        if not dash_active and not buff_charging:
             self.vel_x = 0
             # Move left: Left arrow or A
             if keys[pygame.K_LEFT] or keys[pygame.K_a]:
@@ -230,28 +243,59 @@ class Player:
                 self.vel_x = SPEED
                 self.facing_right = True
                 moving = True
+        elif buff_charging:
+            # Force stop movement when charging
+            self.vel_x = 0
 
-        # Dash key (K) - dash skill
-        if keys[pygame.K_k]:
+        # K key - buff skill (skeleton) or dash skill (other characters)
+        k_key_pressed = keys[pygame.K_k]
+        k_key_just_released = not k_key_pressed and self._prev_key_states[pygame.K_k]
+
+        if k_key_pressed:
             now = pygame.time.get_ticks() / 1000.0
 
-            # Dash skill for both characters
-            dash = self.skills.get("dash")
+            # Try buff skill first (Skeleton)
+            buff = self.skills.get("buff")
             if (
                 SkillBase is not None
-                and not isinstance(dash, dict)
-                and hasattr(dash, "use")
+                and not isinstance(buff, dict)
+                and hasattr(buff, "use")
             ):
                 try:
-                    if dash.use(now, self):
-                        self.has_dashed = True  # Track that we've dashed
-                except Exception:
-                    pass
+                    buff.use(now, self)  # Start/continue charging
+                except Exception as e:
+                    print(f"Error using buff skill: {e}")
             else:
-                # Legacy fallback
-                if self.use_skill("dash", now):
-                    self.has_dashed = True  # Track that we've dashed
-                    self.sound_manager.play_sound("dash")
+                # Dash skill for other characters
+                dash = self.skills.get("dash")
+                if (
+                    SkillBase is not None
+                    and not isinstance(dash, dict)
+                    and hasattr(dash, "use")
+                ):
+                    try:
+                        if dash.use(now, self):
+                            self.has_dashed = True  # Track that we've dashed
+                    except Exception:
+                        pass
+                else:
+                    # Legacy fallback
+                    if self.use_skill("dash", now):
+                        self.has_dashed = True  # Track that we've dashed
+                        self.sound_manager.play_sound("dash")
+
+        # Handle K key release for buff skill
+        if k_key_just_released:
+            buff = self.skills.get("buff")
+            if (
+                SkillBase is not None
+                and not isinstance(buff, dict)
+                and hasattr(buff, "release_charge")
+            ):
+                try:
+                    buff.release_charge(self)  # Release the charge
+                except Exception as e:
+                    print(f"Error releasing buff charge: {e}")
 
         # Cloud Skill (I key) - only when jumped and dashed
         if (
@@ -310,17 +354,32 @@ class Player:
                     except Exception as e:
                         print(f"Error using blast skill: {e}")
                 else:
-                    # If legacy dict provided, try use_skill fallback
-                    if self.use_skill("blast", now) and j_key_just_pressed:
-                        self.sound_manager.play_sound("attack")
-                        self.trigger_attack_animation()  # Trigger attack animation
+                    # Try melee attack skill (Skeleton)
+                    melee_attack = self.skills.get("melee_attack")
+                    if (
+                        SkillBase is not None
+                        and not isinstance(melee_attack, dict)
+                        and hasattr(melee_attack, "use")
+                    ):
+                        try:
+                            if melee_attack.use(now, self):
+                                # Melee attack handles its own sound and animation
+                                pass
+                        except Exception as e:
+                            print(f"Error using melee attack skill: {e}")
+                    else:
+                        # If legacy dict provided, try use_skill fallback
+                        if self.use_skill("blast", now) and j_key_just_pressed:
+                            self.sound_manager.play_sound("attack")
+                            self.trigger_attack_animation()  # Trigger attack animation
 
-        # Update previous key state
+        # Update previous key states
         self._prev_key_states[pygame.K_j] = j_key_pressed
-        
+        self._prev_key_states[pygame.K_k] = k_key_pressed
+
         # Jump: Space only (with double jump support)
         jump_key_pressed = keys[pygame.K_SPACE]
-        
+
         # Check if jump key was just pressed (not held)
         if jump_key_pressed and not self.jump_key_pressed:
             # Can jump if: on ground OR still have air jumps available
@@ -331,13 +390,15 @@ class Player:
                 self.state = "jump"
                 self.current_frame = 0
                 self.has_jumped = True  # Track that we've jumped
-                
+
                 # Play different sound for double jump
                 if self.jump_count == 1:
                     self.sound_manager.play_sound("jump")
                 else:
-                    self.sound_manager.play_sound("jump")  # Could use different sound for double jump
-        
+                    self.sound_manager.play_sound(
+                        "jump"
+                    )  # Could use different sound for double jump
+
         # Update jump key state for next frame
         self.jump_key_pressed = jump_key_pressed
 
@@ -347,51 +408,65 @@ class Player:
                 now = pygame.time.get_ticks() / 1000.0
                 if self.can_use_skills:  # Requires full mana
 
-                    # Check for Fire Wizard's fire explosion skill first
-                    fire_explosion = self.skills.get("fire_explosion")
+                    # Check for Skeleton's earth slam skill first
+                    earth_slam = self.skills.get("earth_slam")
                     if (
                         SkillBase is not None
-                        and not isinstance(fire_explosion, dict)
-                        and hasattr(fire_explosion, "use")
+                        and not isinstance(earth_slam, dict)
+                        and hasattr(earth_slam, "use")
                     ):
                         if self.use_mana(self.max_mana):  # Use all mana for ultimate
-                            if fire_explosion.use(now, self):
-                                self.sound_manager.play_sound("explosion")
+                            if earth_slam.use(now, self):
                                 self.trigger_attack_animation()  # Trigger attack animation
+                                print("EARTH SLAM ACTIVATED! All mana consumed!")
                     else:
-                        # Blue Wizard charge skill
-                        charge_skill = self.skills.get("charge")
-                        if charge_skill is not None:
+                        # Check for Fire Wizard's fire explosion skill
+                        fire_explosion = self.skills.get("fire_explosion")
+                        if (
+                            SkillBase is not None
+                            and not isinstance(fire_explosion, dict)
+                            and hasattr(fire_explosion, "use")
+                        ):
                             if self.use_mana(
                                 self.max_mana
-                            ):  # Use all mana for the skill
-                                # Ensure a ChargeSkill instance exists (attach dynamically if factory didn't)
-                                if charge_skill is None:
-                                    from game.characters.skills import ChargeSkill
+                            ):  # Use all mana for ultimate
+                                if fire_explosion.use(now, self):
+                                    self.sound_manager.play_sound("explosion")
+                                    self.trigger_attack_animation()  # Trigger attack animation
+                        else:
+                            # Blue Wizard charge skill
+                            charge_skill = self.skills.get("charge")
+                            if charge_skill is not None:
+                                if self.use_mana(
+                                    self.max_mana
+                                ):  # Use all mana for the skill
+                                    # Ensure a ChargeSkill instance exists (attach dynamically if factory didn't)
+                                    if charge_skill is None:
+                                        from game.characters.skills import ChargeSkill
 
-                                    # explicitly point to purple_skill frames and use large scale
-                                    inst = ChargeSkill(
-                                        frames_path=os.path.join(
-                                            "assets", "skill-effect", "purple_skill"
-                                        ),
-                                        base_speed=1200,
-                                        base_damage=30,
-                                        max_charge=3.0,
-                                        scale=20.0,
-                                    )
-                                    self.skills["charge"] = inst
-                                    charge_skill = inst
+                                        # explicitly point to purple_skill frames and use large scale
+                                        inst = ChargeSkill(
+                                            frames_path=os.path.join(
+                                                "assets", "skill-effect", "purple_skill"
+                                            ),
+                                            base_speed=1200,
+                                            base_damage=30,
+                                            max_charge=3.0,
+                                            scale=20.0,
+                                        )
+                                        self.skills["charge"] = inst
+                                        charge_skill = inst
 
-                                # Fire skill immediately at full power
-                                if (
-                                    SkillBase is not None
-                                    and not isinstance(charge_skill, dict)
-                                    and hasattr(charge_skill, "release")
-                                ):
-                                    charge_skill.release(
-                                        now, self, 3.0
-                                    )  # Use max charge
-                                    self.sound_manager.play_sound("charge_skill")
+                                    # Fire skill immediately at full power
+                                    if (
+                                        SkillBase is not None
+                                        and not isinstance(charge_skill, dict)
+                                        and hasattr(charge_skill, "release")
+                                    ):
+                                        charge_skill.release(
+                                            now, self, 3.0
+                                        )  # Use max charge
+                                        self.sound_manager.play_sound("charge_skill")
             except Exception as e:
                 print(f"Error using ultimate skill: {e}")
 

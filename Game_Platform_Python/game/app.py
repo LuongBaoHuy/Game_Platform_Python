@@ -1,6 +1,10 @@
 import pygame
 import sys
 import os
+
+# Add current directory to path for relative imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from game.config import WIDTH, HEIGHT, FPS, ZOOM, PLAYER_SCALE
 from game.map_loader import load_map
 from game.player import Player
@@ -30,6 +34,7 @@ except Exception:
 def run_game():
     """Legacy function - redirects to main for compatibility"""
     main()
+
 
 def run_game_session(screen, selected_char):
     """Run a single game session with the given character and return the result"""
@@ -156,10 +161,10 @@ def run_game_session(screen, selected_char):
     # Spawn enemies in the user-defined rectangle
     import random
 
-    ENEMY_SPAWN_MIN_X = 1000
-    ENEMY_SPAWN_MAX_X = 14200
-    ENEMY_SPAWN_MIN_Y = 1500
-    ENEMY_SPAWN_MAX_Y = 9000
+    ENEMY_SPAWN_MIN_X = 3000
+    ENEMY_SPAWN_MAX_X = 4200
+    ENEMY_SPAWN_MIN_Y = 15000
+    ENEMY_SPAWN_MAX_Y = 19000
     ENEMY_COUNT = 12  # default number of enemies to spawn
 
     enemies = []
@@ -703,9 +708,9 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Platform từ Tiled (Zoom camera + FPS)")
-    
+
     selected_char = None  # Keep track of selected character for play again
-    
+
     while True:
         # If no character selected or returning from main menu, show menu and character select
         if selected_char is None:
@@ -724,10 +729,10 @@ def main():
             if selected_char is None:
                 pygame.quit()
                 sys.exit()
-        
+
         # Run the actual game with the selected character
         result = run_game_session(screen, selected_char)
-        
+
         if result == "exit":
             pygame.quit()
             sys.exit()
