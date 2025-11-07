@@ -296,22 +296,8 @@ def main():
             # If drawing sky fails for any reason, we silently continue with black background
             pass
 
-        for tile_img, rect in platforms:
-            if (
-                rect.right > camera_x
-                and rect.left < camera_x + render_w
-                and rect.bottom > camera_y
-                and rect.top < camera_y + render_h
-            ):
-                # Vẽ tile theo toạ độ gốc của Tiled (không dùng inset),
-                # chỉ dùng inset cho va chạm. Khôi phục toạ độ gốc bằng cách trừ inset đã cộng khi build rect.
-                left_draw_inset = int(HITBOX_LEFT_INSET or HITBOX_INSET)
-                top_draw_inset = int(HITBOX_TOP_INSET or HITBOX_INSET)
-                draw_x = rect.x - left_draw_inset - camera_x
-                draw_y = rect.y - top_draw_inset - camera_y
-                render_surface.blit(tile_img, (draw_x, draw_y))
-
-        # Draw object-layer tiles (e.g. large decorative tiles from object layer)
+        # Draw object-layer tiles FIRST (e.g. large decorative tiles from object layer)
+        # These will be drawn behind the tile layer ("nen")
         for obj in map_objects:
             tile = obj.get("tile")
             if not tile:
@@ -344,6 +330,22 @@ def main():
             render_surface.blit(
                 tile, (obj_rect_world.x - camera_x, obj_rect_world.y - camera_y)
             )
+
+        # Draw tile layer ("nen") AFTER object layer so tiles appear on top
+        for tile_img, rect in platforms:
+            if (
+                rect.right > camera_x
+                and rect.left < camera_x + render_w
+                and rect.bottom > camera_y
+                and rect.top < camera_y + render_h
+            ):
+                # Vẽ tile theo toạ độ gốc của Tiled (không dùng inset),
+                # chỉ dùng inset cho va chạm. Khôi phục toạ độ gốc bằng cách trừ inset đã cộng khi build rect.
+                left_draw_inset = int(HITBOX_LEFT_INSET or HITBOX_INSET)
+                top_draw_inset = int(HITBOX_TOP_INSET or HITBOX_INSET)
+                draw_x = rect.x - left_draw_inset - camera_x
+                draw_y = rect.y - top_draw_inset - camera_y
+                render_surface.blit(tile_img, (draw_x, draw_y))
 
         # Nếu bật debug, vẽ hitbox của từng bức tường (chỉ phần đang trong camera)
         if show_hitboxes:
