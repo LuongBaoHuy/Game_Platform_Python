@@ -337,6 +337,7 @@ class Player:
                 self.state = "idle"
 
     def move(self, platforms):
+        # Xử lý di chuyển ngang
         if self.vel_x != 0:
             self.rect.x += self.vel_x
             for _, plat in platforms:
@@ -345,21 +346,42 @@ class Player:
                         self.rect.right = plat.left
                     elif self.vel_x < 0:
                         self.rect.left = plat.right
+        
+        # Áp dụng gravity
         self.vel_y += GRAVITY
+        
+        # Di chuyển dọc
         self.rect.y += self.vel_y
         self.on_ground = False
+        standing_platform = None
+        
+        # Check collision với platforms
         for _, plat in platforms:
             if self.rect.colliderect(plat):
                 if self.vel_y > 0:
+                    # Player đang rơi xuống và chạm platform
                     self.rect.bottom = plat.top
                     self.vel_y = 0
                     self.on_ground = True
+                    standing_platform = plat
                     # Reset jump and dash flags when landing
                     self.has_jumped = False
                     self.has_dashed = False
                 elif self.vel_y < 0:
+                    # Player đang nhảy lên và chạm platform từ dưới
                     self.rect.top = plat.bottom
                     self.vel_y = 0
+        
+        # Nếu đang đứng trên moving platform, di chuyển theo nó
+        if standing_platform and hasattr(standing_platform, 'vel_x') and hasattr(standing_platform, 'vel_y'):
+            # Di chuyển player theo platform
+            self.rect.x += standing_platform.vel_x
+            
+            # Với trục y, cần xử lý cẩn thận để tránh jitter:
+            # Thay vì cộng vel_y, ta "dính" player vào top của platform
+            # vì platform.rect đã được cập nhật với vị trí mới rồi
+            if self.on_ground:
+                self.rect.bottom = standing_platform.top
 
     def update_mana(self, dt):
         # Regenerate mana over time if not full

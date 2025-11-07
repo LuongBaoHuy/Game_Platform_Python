@@ -4,6 +4,9 @@ import os
 from game.config import WIDTH, HEIGHT, FPS, ZOOM, PLAYER_SCALE
 from game.map_loader import load_map
 from game.player import Player
+from game.animated_decor import AnimatedDecorManager
+from game.moving_platform import MovingPlatformManager
+from game.portal import PortalManager, Portal
 
 # Nếu package characters được cài, dùng factory để tạo nhân vật từ metadata
 try:
@@ -49,12 +52,15 @@ def main():
         HITBOX_RIGHT_INSET,
         OBJECT_TILE_USE_BOTTOM_Y,
         OBJECT_TILE_Y_OFFSET,
+        BG_TINT_ENABLED,
+        BG_TINT_COLOR,
+        BG_TINT_ALPHA,
     )
 
     # Build map path relative to the project root to avoid absolute paths
     repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
     map_path = os.path.join(repo_root, "assets", "maps", "Map_test.tmx")
-    platforms, tmx_data, map_objects = load_map(
+    platforms, tmx_data, map_objects, animated_objects, moving_platform_objects, portal_objects = load_map(
         map_path,
         hitbox_inset=HITBOX_INSET,
         top_inset=HITBOX_TOP_INSET,
@@ -62,6 +68,67 @@ def main():
         left_inset=HITBOX_LEFT_INSET,
         right_inset=HITBOX_RIGHT_INSET,
     )
+    
+    # Tách map_objects theo layer để vẽ đúng thứ tự
+    decor2_tinh_objects = [obj for obj in map_objects if obj.get('layer_name', '').lower() == 'object_decor2_tinh']
+    decor1_animation_objects = [obj for obj in animated_objects]  # Đã được tách riêng
+    object_layer1_objects = [obj for obj in map_objects if obj.get('layer_name', '').lower() == 'object layer 1']
+    
+    # Tạo animated decorations manager
+    animated_decor_manager = AnimatedDecorManager(
+        animated_objects,
+        use_bottom_y=OBJECT_TILE_USE_BOTTOM_Y,
+        y_offset=OBJECT_TILE_Y_OFFSET
+    )
+    
+    # Tạo moving platforms manager
+    moving_platform_manager = MovingPlatformManager(
+        moving_platform_objects,
+        use_bottom_y=OBJECT_TILE_USE_BOTTOM_Y,
+        y_offset=OBJECT_TILE_Y_OFFSET
+    )
+    
+    # Tạo portal manager
+    portal_manager = PortalManager()
+    for portal_obj in portal_objects:
+        props = portal_obj.get('properties', {})
+        
+        # Parse properties từ Tiled
+        target_id = props.get('target')
+        if target_id:
+            # Convert target to int if it's string
+            try:
+                target_id = int(target_id)
+            except (ValueError, TypeError):
+                print(f"[Portal] Invalid target ID: {target_id}")
+                continue
+        else:
+            print(f"[Portal] Portal {portal_obj.get('id')} không có target, bỏ qua")
+            continue
+        
+        cooldown_ms = int(props.get('cooldown_ms', 1000))
+        lockout_ms = int(props.get('lockout_ms', 0))  # Lockout cho player
+        spawn_offset_x = int(props.get('spawn_offset_x', 0))
+        spawn_offset_y = int(props.get('spawn_offset_y', 0))
+        require_interact = 'interact' in props  # Nếu có property interact thì cần nhấn phím
+        
+        portal = Portal(
+            obj_id=portal_obj.get('id'),
+            x=portal_obj.get('x'),
+            y=portal_obj.get('y'),
+            width=portal_obj.get('width', 512),
+            height=portal_obj.get('height', 512),
+            target_id=target_id,
+            tile_img=portal_obj.get('tile'),
+            cooldown_ms=cooldown_ms,
+            lockout_ms=lockout_ms,
+            spawn_offset_x=spawn_offset_x,
+            spawn_offset_y=spawn_offset_y,
+            require_interact=require_interact
+        )
+        portal_manager.add_portal(portal)
+    
+    print(f"[Portal] Đã load {len(portal_manager.portals)} portals")
 
     # Tạo nhân vật
     # tìm object spawn trong map_objects (tìm theo name hoặc type)
@@ -225,8 +292,22 @@ def main():
             # update skills with delta seconds (e.g. dash)
             if hasattr(player, "update_skills"):
                 player.update_skills(dt)
+            
+            # Update moving platforms TRƯỚC để player collision với vị trí mới
+            moving_platform_manager.update(dt)
+            
+            # Kết hợp static platforms với moving platforms cho collision
+            all_platforms = list(platforms)  # Copy list platforms tĩnh
+            moving_platform_rects = moving_platform_manager.get_platforms_for_collision()
+            all_platforms.extend(moving_platform_rects)
+            
             # Use consolidated move() which applies gravity and resolves collisions
-            player.move(platforms)
+            player.move(all_platforms)
+            
+            # Check portal collision và teleport
+            portal = portal_manager.check_player_collision(player.rect)
+            if portal:
+                portal_manager.teleport_player(player, portal)
             
             # Check and restore speed after slow effect expires
             if hasattr(player, 'is_slowed') and player.is_slowed:
@@ -246,6 +327,9 @@ def main():
                 player.vel_y = 0
             except Exception:
                 pass
+        
+        # Update animated decorations (always update, even when player is dead)
+        animated_decor_manager.update(dt)
 
         # Render surface theo zoom
         render_w = int(WIDTH / ZOOM)
@@ -296,9 +380,14 @@ def main():
             # If drawing sky fails for any reason, we silently continue with black background
             pass
 
-        # Draw object-layer tiles FIRST (e.g. large decorative tiles from object layer)
-        # These will be drawn behind the tile layer ("nen")
-        for obj in map_objects:
+        # === VẼ THEO THỨ TỰ LAYER (từ dưới lên trên) ===
+
+        # Create a camera rect once and reuse to avoid per-object allocations
+        camera_rect = pygame.Rect(camera_x, camera_y, render_w, render_h)
+        obj_y_offset = int(OBJECT_TILE_Y_OFFSET)
+        
+        # 1. Vẽ Object_Decor2_Tinh (dưới cùng)
+        for obj in decor2_tinh_objects:
             tile = obj.get("tile")
             if not tile:
                 continue
@@ -314,13 +403,57 @@ def main():
             else:
                 oy_aligned = oy
             # Áp dụng offset tinh chỉnh nếu cần
-            oy_aligned += int(OBJECT_TILE_Y_OFFSET)
+            oy_aligned += obj_y_offset
 
             # Build object's rect in world coordinates
             obj_rect_world = pygame.Rect(ox, oy_aligned, tw, th)
 
-            # Camera rect in world coordinates
-            camera_rect = pygame.Rect(camera_x, camera_y, render_w, render_h)
+            # Only blit if intersects camera
+            if not obj_rect_world.colliderect(camera_rect):
+                continue
+
+            # Draw (offset by camera)
+            render_surface.blit(
+                tile, (obj_rect_world.x - camera_x, obj_rect_world.y - camera_y)
+            )
+        
+        # 2. Vẽ Object_Decor1_animation (animated decorations)
+        animated_decor_manager.draw(render_surface, camera_x, camera_y, render_w, render_h)
+
+        # 3. Phủ nền màu mờ (BG tint) TRƯỚC Object Layer 1 để nằm sau nó và trên Decor layers
+        if BG_TINT_ENABLED:
+            try:
+                map_rect = pygame.Rect(0, 0, map_w, map_h)
+                visible = map_rect.clip(camera_rect)
+                if visible.width > 0 and visible.height > 0:
+                    overlay = pygame.Surface((visible.width, visible.height), pygame.SRCALPHA)
+                    r, g, b = BG_TINT_COLOR
+                    overlay.fill((int(r), int(g), int(b), int(BG_TINT_ALPHA)))
+                    render_surface.blit(overlay, (visible.x - camera_x, visible.y - camera_y))
+            except Exception:
+                pass
+
+        # 4. Vẽ Object Layer 1 (static decorative objects)
+        for obj in object_layer1_objects:
+            tile = obj.get("tile")
+            if not tile:
+                continue
+
+            ox = int(obj.get("x", 0))
+            oy = int(obj.get("y", 0))
+
+            # If tile image provided, align it so that object's y is the bottom of the image.
+            tw, th = tile.get_width(), tile.get_height()
+            # Căn theo cấu hình: nếu y là đáy ảnh thì trừ chiều cao, ngược lại giữ nguyên
+            if OBJECT_TILE_USE_BOTTOM_Y:
+                oy_aligned = oy - th
+            else:
+                oy_aligned = oy
+            # Áp dụng offset tinh chỉnh nếu cần
+            oy_aligned += obj_y_offset
+
+            # Build object's rect in world coordinates
+            obj_rect_world = pygame.Rect(ox, oy_aligned, tw, th)
 
             # Only blit if intersects camera
             if not obj_rect_world.colliderect(camera_rect):
@@ -331,7 +464,10 @@ def main():
                 tile, (obj_rect_world.x - camera_x, obj_rect_world.y - camera_y)
             )
 
-        # Draw tile layer ("nen") AFTER object layer so tiles appear on top
+        # 5. Vẽ tile layer "nen" (trên cùng)
+        # Precompute draw insets to avoid recomputing inside the loop
+        left_draw_inset = int(HITBOX_LEFT_INSET or HITBOX_INSET)
+        top_draw_inset = int(HITBOX_TOP_INSET or HITBOX_INSET)
         for tile_img, rect in platforms:
             if (
                 rect.right > camera_x
@@ -341,11 +477,15 @@ def main():
             ):
                 # Vẽ tile theo toạ độ gốc của Tiled (không dùng inset),
                 # chỉ dùng inset cho va chạm. Khôi phục toạ độ gốc bằng cách trừ inset đã cộng khi build rect.
-                left_draw_inset = int(HITBOX_LEFT_INSET or HITBOX_INSET)
-                top_draw_inset = int(HITBOX_TOP_INSET or HITBOX_INSET)
                 draw_x = rect.x - left_draw_inset - camera_x
                 draw_y = rect.y - top_draw_inset - camera_y
                 render_surface.blit(tile_img, (draw_x, draw_y))
+        
+        # Draw portals (vẽ trước moving platforms)
+        portal_manager.draw(render_surface, camera_x, camera_y, render_w, render_h)
+        
+        # Draw moving platforms (vẽ sau portals)
+        moving_platform_manager.draw(render_surface, camera_x, camera_y, render_w, render_h)
 
         # Nếu bật debug, vẽ hitbox của từng bức tường (chỉ phần đang trong camera)
         if show_hitboxes:
