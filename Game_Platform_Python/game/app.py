@@ -4,6 +4,8 @@ import os
 from game.config import WIDTH, HEIGHT, FPS, ZOOM, PLAYER_SCALE
 from game.map_loader import load_map
 from game.player import Player
+from game.pause_menu import PauseMenu
+from game.character_select import CharacterSelectMenu
 
 # Nếu package characters được cài, dùng factory để tạo nhân vật từ metadata
 try:
@@ -25,7 +27,8 @@ except Exception:
 # ===============================
 # Main Game
 # ===============================
-def main():
+def run_game():
+    """Run a single game session and return the result"""
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Platform từ Tiled (Zoom camera + FPS)")
@@ -36,8 +39,14 @@ def main():
     menu_result = menu.run()
 
     if menu_result == "exit":
-        pygame.quit()
-        sys.exit()
+        return "exit"
+
+    # Show character selection screen
+    char_select = CharacterSelectMenu(screen)
+    selected_char = char_select.run()
+
+    if selected_char is None:
+        return "exit"
 
     # Initialize sound system
     from game.sound_manager import SoundManager
@@ -85,32 +94,71 @@ def main():
         sx = int(spawn.get("x", 20))
         sy = int(spawn.get("y", 20))
         spawn_pos = (sx, sy)
-        # Nếu factory khả dụng, tạo player từ metadata (chọn character đầu tiên tìm được)
-        ids = list_characters() if callable(list_characters) else []
-        if create_player and ids:
-            try:
-                player = create_player(ids[0], sx, sy)
-            except Exception:
-                # fallback an toàn
+        # Tạo player dựa trên nhân vật được chọn
+        try:
+            print(f"Creating player with selected character: {selected_char}")
+
+            # Ưu tiên sử dụng factory để tạo player từ metadata
+            if create_player:
+                player = create_player(selected_char, sx, sy)
+                player.character_type = (
+                    selected_char  # Set character type for reference
+                )
+                print(f"Created {selected_char} player using factory: {type(player)}")
+
+                # Debug thông tin về các frames đã load
+                print(f"Loaded animations for {selected_char}:")
+                for state, frames in player.animations.items():
+                    print(f"  {state}: {len(frames)} frames")
+            else:
+                # Fallback: tạo player cơ bản nếu factory không khả dụng
                 player = Player(sx, sy)
-        else:
+                player.character_type = selected_char
+                print(f"Created basic player (factory not available)")
+
+            # Áp dụng scale cho player
+            if hasattr(player, "image") and player.image:
+                current_rect = player.image.get_rect()
+                new_width = int(current_rect.width * PLAYER_SCALE)
+                new_height = int(current_rect.height * PLAYER_SCALE)
+                player.image = pygame.transform.scale(
+                    player.image, (new_width, new_height)
+                )
+
+        except Exception as e:
+            print(f"Error creating player: {e}")
+            import traceback
+
+            traceback.print_exc()
+            # fallback an toàn nếu có lỗi
+            print(f"FALLBACK: Creating basic Player because of error")
             player = Player(sx, sy)
+            player.character_type = "fallback"
         # Căn toạ độ spawn theo chân (midbottom) để khớp cách Tiled hiển thị point/rect
         try:
             player.rect.midbottom = spawn_pos
         except Exception:
             pass
     else:
-        ids = list_characters() if callable(list_characters) else []
-        if create_player and ids:
+        print("WARNING: No spawn point found in map, using default position")
+        # Vẫn sử dụng nhân vật được chọn ngay cả khi không có spawn point
+        if create_player:
             try:
-                player = create_player(ids[0], 1200, 9200)
+                print(
+                    f"Creating selected character {selected_char} at default position"
+                )
+                player = create_player(selected_char, 1200, 9200)
+                player.character_type = selected_char
                 spawn_pos = (1200, 9200)
             except Exception:
+                print("FALLBACK: Creating basic Player because factory failed")
                 player = Player(1200, 9200)
+                player.character_type = "basic_fallback"
                 spawn_pos = (1200, 9200)
         else:
+            print("FALLBACK: Creating basic Player because no factory or characters")
             player = Player(1200, 9200)
+            player.character_type = "no_factory_fallback"
             spawn_pos = (1200, 9200)
         # Đồng nhất quy ước: đặt vị trí spawn theo chân nhân vật
         try:
@@ -207,6 +255,18 @@ def main():
                 # Toggle hiển thị hitbox tường
                 if event.key == pygame.K_h:
                     show_hitboxes = not show_hitboxes
+                # Handle ESC for pause menu
+                elif event.key == pygame.K_ESCAPE:
+                    # Create and show pause menu
+                    pause_menu = PauseMenu(screen, scaled_surface)
+                    pause_result = pause_menu.run()
+                    if pause_result == "exit":
+                        running = False
+                    elif pause_result == "main_menu":
+                        # Return to main menu
+                        return "main_menu"
+                    # If continue, just resume the game loop
+
                 # If player died, allow respawn (R) or quit (Q)
                 if hasattr(player, "alive") and not getattr(player, "alive"):
                     if event.key == pygame.K_r:
@@ -645,8 +705,23 @@ def main():
 
         pygame.display.flip()
 
-    pygame.quit()
-    sys.exit()
+    return "exit"  # Game ended normally
+
+
+def main():
+    """Main function that handles the game loop and menu navigation"""
+    while True:
+        result = run_game()
+        if result == "exit":
+            pygame.quit()
+            sys.exit()
+        elif result == "main_menu":
+            # Continue the loop to restart from main menu
+            continue
+        else:
+            # Any other result, exit
+            pygame.quit()
+            sys.exit()
 
 
 if __name__ == "__main__":

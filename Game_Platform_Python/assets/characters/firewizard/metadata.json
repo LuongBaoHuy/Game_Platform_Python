@@ -1,0 +1,50 @@
+{
+    "sprite_path": "assets/characters/firewizard",
+    "scale": 0.25,
+    "frames": {
+        "idle": "FireWizardIdle",
+        "walk": "FireWizardWalk", 
+        "jump": "FireWizardJump",
+        "dash": "FireWizardJump/Dash3"
+    },
+    "skills": [
+        {
+            "id": "blast",
+            "params": {
+                "frames_path": "assets/skill-effect/skill_uti_wizard",
+                "speed": 800,
+                "lifetime": 1.0,
+                "cooldown": 0.5,
+                "damage": 35,
+                "scale": 1.0
+            }
+        },
+        {
+            "id": "charge",
+            "params": {
+                "frames_path": "assets/skill-effect/skill_uti_wizard",
+                "base_speed": 600,
+                "base_damage": 50,
+                "max_charge": 2.0,
+                "lifetime": 1.8,
+                "cooldown": 3.0,
+                "scale": 2.0
+            }
+        },
+        {
+            "id": "dash",
+            "params": {
+                "duration": 0.6,
+                "cooldown": 1.5,
+                "speed_multiplier": 2.2
+            }
+        },
+        {
+            "id": "cloud",
+            "params": {
+                "duration": 0.8,
+                "cooldown": 3.0
+            }
+        }
+    ]
+}

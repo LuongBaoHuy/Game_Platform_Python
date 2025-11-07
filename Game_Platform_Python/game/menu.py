@@ -8,7 +8,7 @@ FONTS_DIR = os.path.join(ASSETS_DIR, "fonts")
 SFX_DIR = os.path.join(ASSETS_DIR, "sounds")
 MENU_DIR = os.path.join(ASSETS_DIR, "menu")
 
-TITLE_TEXT = "START GAME"
+TITLE_TEXT = "GAME PLATFORM"
 
 
 # ---- tiện ích ----
@@ -123,7 +123,7 @@ class Menu:
         # Load click sound
         try:
             self.sfx_click = pygame.mixer.Sound(
-                os.path.join("assets", "sounds", "menu_click.wav")
+                os.path.join("assets", "sounds", "click.wav")
             )
             self.sfx_click.set_volume(0.7)
         except Exception as e:
@@ -162,9 +162,8 @@ class Menu:
         # items
         y0 = self.h // 2
         self.items = [
-            MenuItem("1 PLAYER", (self.w // 2, y0)),
-            MenuItem("2 PLAYERS", (self.w // 2, y0 + 70)),
-            MenuItem("EXIT", (self.w // 2, y0 + 140)),
+            MenuItem("START GAME", (self.w // 2, y0)),
+            MenuItem("EXIT", (self.w // 2, y0 + 70)),
         ]
         self._last_hovered = None
 
