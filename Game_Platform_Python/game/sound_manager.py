@@ -19,6 +19,9 @@ class SoundManager:
         "enemy_attack": 500,  # 500ms cooldown for enemy attack
         "enemy_death": 0,  # no cooldown for death sound
         "hurt": 200,  # 200ms cooldown for hurt sound
+        "explosion": 200,  # 200ms cooldown for explosion sound
+        "fire": 120,  # 120ms cooldown for fire sound
+        "dash": 150,  # 150ms cooldown for dash sound
     }
 
     def __init__(self):
@@ -60,6 +63,8 @@ class SoundManager:
             "enemy_attack": "enemy_attack.wav",
             "enemy_death": "enemy_death.wav",
             "game_over": "game_over.wav",
+            "explosion": "explosion.wav",
+            "fire": "hit.wav",  # Use hit.wav for fire sound
         }
 
         # Load each sound
