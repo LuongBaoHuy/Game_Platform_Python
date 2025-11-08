@@ -1,0 +1,52 @@
+{
+    "sprite_path": "assets/characters/firewizard",
+    "scale": 0.65,
+    "frames": {
+        "idle": "FireWizardIdle",
+        "walk": "FireWizardWalk", 
+        "jump": "FireWizardJump",
+        "dash": "FireWizardJump",
+        "run": "FireWizardRun",
+        "attack": "FireWizardAttack",
+        "hurt": "FireWizardHurt",
+        "dying": "FireWizardDie"
+    },
+    "skills": [
+        {
+            "id": "dash",
+            "params": {
+                "cooldown": 1.0,
+                "duration": 0.18,
+                "speed_multiplier": 3.0
+            }
+        },
+        {
+            "id": "blast",
+            "params": {
+                "frames_path": "assets/skill-effect/fire",
+                "speed": 2700,
+                "lifetime": 1.5,
+                "cooldown": 0.8,
+                "damage": 40,
+                "scale": 1.5
+            }
+        },
+        {
+            "id": "cloud",
+            "params": {
+                "duration": 0.8,
+                "cooldown": 3.0
+            }
+        },
+        {
+            "id": "fire_explosion",
+            "params": {
+                "cooldown": 5.0,
+                "damage": 100,
+                "explosion_radius": 250,
+                "duration": 1.2,
+                "frames_path": "assets/skill-effect/fire_ult"
+            }
+        }
+    ]
+}

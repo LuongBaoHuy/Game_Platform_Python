@@ -34,3 +34,9 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 # hãy đặt OBJECT_TILE_USE_BOTTOM_Y = False để KHÔNG trừ chiều cao ảnh khi vẽ.
 OBJECT_TILE_USE_BOTTOM_Y = False  # True: y là đáy ảnh; False: y là đỉnh ảnh
 OBJECT_TILE_Y_OFFSET = 0  # tinh chỉnh thêm (px), dương = đẩy ảnh xuống, âm = kéo lên
+
+# Nền phủ mờ phía sau layer "nen"
+# Bật/tắt và cấu hình màu + độ trong suốt (alpha 0-255)
+BG_TINT_ENABLED = True
+BG_TINT_COLOR = (0x65, 0xBE, 0xC4)  # #65BEC4
+BG_TINT_ALPHA = int(255 * 0.2)  # ~20% opacity

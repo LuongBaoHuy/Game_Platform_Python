@@ -1143,14 +1143,14 @@ class BossEnemy(DataDrivenEnemy):
     - Ground Slam: AOE damage skill
     """
     
-    def __init__(self, x, y, char_id='Troll1', patrol_range=400, speed=90):
+    def __init__(self, x, y, char_id='Troll1', patrol_range=400, speed=200):
         super().__init__(x, y, char_id=char_id, patrol_range=patrol_range, speed=speed)
         
         # Boss stats
         self.max_hp = 1000
         self.hp = self.max_hp
         self.base_damage = 20
-        self.base_speed = speed
+        self.base_speed = speed * 1.1  # TĂNG SPEED lên 30%
         
         # Physics
         self.gravity = 980  # Gravity constant
@@ -1163,8 +1163,8 @@ class BossEnemy(DataDrivenEnemy):
         # Rage Mode (kích hoạt ở 50% HP)
         self.rage_mode = False
         self.rage_threshold = 0.5  # 50% HP
-        self.rage_speed_multiplier = 1.6
-        self.rage_damage_multiplier = 1.75
+        self.rage_speed_multiplier = 1.2
+        self.rage_damage_multiplier = 1.2
         
         # Invincibility phases
         self.is_invincible = False
@@ -1190,16 +1190,27 @@ class BossEnemy(DataDrivenEnemy):
         
         # Animation speeds
         self.anim_speed = 0.12
-        self.attack_anim_speed = 0.1
+        self.attack_anim_speed = 0.10  # NHANH HƠN (từ 0.15 → 0.10)
         self.hurt_anim_speed = 0.1
         self.dying_anim_speed = 0.15
         
         # Attack cooldown
-        self.attack_cooldown = 1.5  # 1.5s giữa các đòn attack
+        self.attack_cooldown = 1.5  # GIẢM COOLDOWN (từ 2.0s → 1.5s) - tấn công nhanh hơn
         self.attack_timer = 0.0
         self.is_attacking = False
         self.attack_frame_hit = 5  # Frame thứ 5 trong attack animation sẽ gây damage
         self.attack_has_hit = False  # Track xem đã deal damage trong attack này chưa
+        
+        # Teleport attack (khi player xa)
+        self.teleport_attack_cooldown = 5.0  # 5 giây cooldown
+        self.teleport_attack_timer = 0.0
+        self.teleport_range_min = 3000  # Teleport khi player XA HƠN 2500px (player đi quá xa!)
+        self.teleport_range_max = 5000  # Teleport range max rất cao
+        self.teleport_offset = 150  # Teleport cách player 150px
+        
+        # Theo dõi player có đang chạy xa không
+        self.last_player_distance = 0
+        self.player_running_away_time = 0.0  # Thời gian player chạy xa liên tục
         
     def take_damage(self, damage):
         """Override take_damage để xử lý invincibility"""
@@ -1225,9 +1236,9 @@ class BossEnemy(DataDrivenEnemy):
         self.speed = self.base_speed * self.rage_speed_multiplier
         self.attack_damage = int(self.base_damage * self.rage_damage_multiplier)
         
-        # Invincible trong 3 giây khi chuyển phase
+        # Invincible trong 5 giây khi chuyển phase
         self.is_invincible = True
-        self.invincibility_timer = 3.0
+        self.invincibility_timer = 5.0
         
         # Spawn rage particles
         self._spawn_rage_particles()
@@ -1317,6 +1328,7 @@ class BossEnemy(DataDrivenEnemy):
         self.invincibility_cooldown_timer = max(0.0, self.invincibility_cooldown_timer - dt)
         self.ground_slam_timer = max(0.0, self.ground_slam_timer - dt)
         self.attack_timer = max(0.0, self.attack_timer - dt)
+        self.teleport_attack_timer = max(0.0, self.teleport_attack_timer - dt)
         
         # Kết thúc invincibility
         if self.is_invincible and self.invincibility_timer <= 0:
@@ -1338,56 +1350,113 @@ class BossEnemy(DataDrivenEnemy):
         
         prev_state = self.state
         
-        # AI Logic - Boss DI CHUYỂN và tấn công
-        if distance < 700:  # Detection range
-            # Quay mặt về phía player
-            if dx != 0:
-                self.facing_right = dx > 0
-                self.direction = 1 if dx > 0 else -1
-            
-            # Melee attack khi player RẤT GẦN
-            if distance <= 150:  # Attack range
-                # Chỉ attack nếu cooldown đã hết
-                if self.attack_timer <= 0 and self.state != 'attack':
-                    self.state = 'attack'
-                    self.vel_x = 0  # Đứng yên khi attack
-                    
-                    # Reset attack timer và damage flag
-                    self.attack_timer = self.attack_cooldown
-                    self.attack_has_hit = False  # Reset flag để deal damage
-                    
-                elif self.state == 'attack':
-                    # Đang trong attack animation
-                    self.vel_x = 0
-                else:
-                    # Cooldown chưa hết → đứng idle
-                    self.state = 'idle'
-                    self.vel_x = 0
-            
-            # Chase player - DI CHUYỂN về phía player
-            elif distance > 150:
-                # Chọn animation dựa trên speed
-                if self.rage_mode:
-                    self.state = 'run'  # Rage mode - chạy nhanh
-                else:
-                    self.state = 'walk'  # Normal - đi bộ
-                
-                # Di chuyển về phía player
-                move_speed = self.speed if not self.rage_mode else self.speed * 1.5
-                if dx > 0:
-                    self.vel_x = move_speed
-                else:
-                    self.vel_x = -move_speed
-            
-            # Trigger invincibility ngẫu nhiên khi HP thấp
-            if self.hp < self.max_hp * 0.7 and not self.is_invincible:
-                import random
-                if random.random() < 0.001:  # 0.1% mỗi frame
-                    self._trigger_invincibility()
+        # DEBUG: In thông tin mỗi 60 frames
+        if hasattr(self, 'debug_counter'):
+            self.debug_counter += 1
         else:
-            # Player xa → idle/patrol
-            self.state = 'idle'
+            self.debug_counter = 0
+        
+        if self.debug_counter % 60 == 0:  # Mỗi giây
+            print(f"[BOSS DEBUG] Distance: {int(distance)}px | Far time: {self.player_running_away_time:.1f}s | Teleport timer: {self.teleport_attack_timer:.1f}s")
+        
+        # Theo dõi xem player có ở RẤT XA không
+        if distance > self.teleport_range_min:  # Player ở RẤT XA (> 2000px)
+            self.player_running_away_time += dt
+            if self.debug_counter % 60 == 0:
+                print(f"[BOSS] Player VERY FAR! Distance: {int(distance)}px, Time: {self.player_running_away_time:.1f}s (need 2.0s to teleport)")
+        else:
+            # Player trong tầm nhìn bình thường - reset timer
+            self.player_running_away_time = 0.0
+        
+        self.last_player_distance = distance
+        
+        # AI Logic - Boss DI CHUYỂN và tấn công
+        # KHÔNG giới hạn detection range - boss luôn "thấy" player
+        # Quay mặt về phía player
+        if dx != 0:
+            self.facing_right = dx > 0
+            self.direction = 1 if dx > 0 else -1
+        
+        # CHECK TELEPORT ATTACK: CHỈ khi player RẤT XA và lâu
+        # 1. Player ở RẤT XA (> 2000px)
+        # 2. Player đã ở xa liên tục > 2.0 giây (giảm từ 3.0s)
+        # 3. Teleport cooldown đã hết
+        if (distance > self.teleport_range_min
+            and self.player_running_away_time > 2.0 
+            and self.teleport_attack_timer <= 0):
+            print(f"[BOSS] ⚡ Player at {int(distance)}px! TELEPORTING...")
+            
+            # Tính vị trí teleport (cách player 100px)
+            if dx > 0:
+                # Player ở bên phải - teleport về bên trái player
+                teleport_x = player.rect.centerx - self.teleport_offset
+            else:
+                # Player ở bên trái - teleport về bên phải player
+                teleport_x = player.rect.centerx + self.teleport_offset
+            
+            teleport_y = player.rect.centery  # Cùng độ cao
+            
+            # DỊCH CHUYỂN tức thì
+            self.rect.centerx = teleport_x
+            self.rect.centery = teleport_y
+            
+            # Reset cooldown và trigger attack
+            self.teleport_attack_timer = self.teleport_attack_cooldown
+            prev_state = self.state  # Lưu state cũ
+            self.state = 'attack'
             self.vel_x = 0
+            # ĐÒN ĐẦU TIÊN SAU TELEPORT: attack NGAY (timer = 0)
+            self.attack_timer = 0.0  # KHÔNG cooldown cho đòn đầu
+            self.attack_has_hit = False  # Reset để có thể deal damage
+            self.current_frame = 0  # Reset animation về frame đầu
+            
+            print(f"[BOSS] ✓ TELEPORTED to ({int(teleport_x)}, {int(teleport_y)})! INSTANT ATTACK!")
+            # Damage sẽ được gây khi attack animation đến hit frame (tự nhiên hơn)
+        
+        # Melee attack khi player RẤT GẦN (< 150px)
+        elif distance <= 150:  # Attack range
+            # Chỉ attack nếu cooldown đã hết
+            if self.attack_timer <= 0 and self.state != 'attack':
+                prev_state = self.state  # Lưu state cũ
+                self.state = 'attack'
+                self.vel_x = 0  # Đứng yên khi attack
+                
+                # Reset attack timer và damage flag
+                self.attack_timer = self.attack_cooldown
+                self.attack_has_hit = False  # Reset flag để deal damage
+                self.current_frame = 0  # Reset animation về frame đầu
+                print(f"[BOSS] Starting melee attack (prev state: {prev_state})")
+                
+            elif self.state == 'attack':
+                # Đang trong attack animation
+                self.vel_x = 0
+            else:
+                # Cooldown chưa hết → đứng idle
+                if self.state != 'idle':
+                    self.attack_has_hit = False  # Reset khi chuyển sang idle
+                self.state = 'idle'
+                self.vel_x = 0
+        
+        # Chase player - DI CHUYỂN về phía player (LUÔN đuổi khi distance > 150px)
+        elif distance > 150:
+            # Boss đi bộ/chạy để lại gần player
+            if self.rage_mode:
+                self.state = 'run'  # Rage mode - chạy nhanh
+            else:
+                self.state = 'walk'  # Normal - đi bộ
+            
+            # Di chuyển về phía player
+            move_speed = self.speed if not self.rage_mode else self.speed * 1.5
+            if dx > 0:
+                self.vel_x = move_speed
+            else:
+                self.vel_x = -move_speed
+        
+        # Trigger invincibility ngẫu nhiên khi HP thấp
+        if self.hp < self.max_hp * 0.7 and not self.is_invincible:
+            import random
+            if random.random() < 0.001:  # 0.1% mỗi frame
+                self._trigger_invincibility()
         
         # Reset animation khi đổi state
         if prev_state != self.state:
@@ -1410,15 +1479,39 @@ class BossEnemy(DataDrivenEnemy):
         # Handle platform collision (Boss đứng trên nền)
         on_ground = self._handle_platform_collision(platforms)
         
-        # Debug: Kiểm tra nếu Boss rơi quá xa
-        if self.rect.y > 15000:
-            print(f"[BOSS ERROR] Boss fell too far! Y={self.rect.y}, Respawning at spawn position")
-            self.rect.y = 9000  # Reset về vị trí hợp lệ
+        # Debug: Kiểm tra nếu Boss rơi quá xa - tìm platform gần nhất để respawn
+        if self.rect.y > 20000:  # Tăng threshold lên 20000 (gần map height)
+            print(f"[BOSS ERROR] Boss fell out of map! Y={self.rect.y}, Finding nearest platform...")
+            
+            # Tìm platform gần nhất
+            nearest_platform_y = None
+            for platform in platforms:
+                if isinstance(platform, tuple) and len(platform) >= 2:
+                    platform_rect = platform[1]
+                elif hasattr(platform, 'rect'):
+                    platform_rect = platform.rect
+                else:
+                    continue
+                
+                # Tìm platform gần X position của boss
+                if abs(platform_rect.centerx - self.rect.centerx) < 1000:
+                    if platform_rect.top < 18000:  # Platform hợp lệ (không quá thấp)
+                        if nearest_platform_y is None or platform_rect.top < nearest_platform_y:
+                            nearest_platform_y = platform_rect.top
+            
+            if nearest_platform_y:
+                print(f"[BOSS] Respawning on platform at Y={nearest_platform_y}")
+                self.rect.y = nearest_platform_y - self.rect.height
+            else:
+                print(f"[BOSS] No platform found, using default Y=9000")
+                self.rect.y = 9000
+            
             self.vel_y = 0
+            self.vel_x = 0
         
         # Update animation
         self._update_animation(dt)
-        
+    
         # Deal damage nếu đang attack và đến hit frame
         if self.state == 'attack' and not self.attack_has_hit:
             attack_frames = self.animations.get('attack', [])
@@ -1512,7 +1605,14 @@ class BossEnemy(DataDrivenEnemy):
                     self.dead = True
             else:
                 # Loop animation
+                prev_frame = self.current_frame
                 self.current_frame = (self.current_frame + 1) % len(frames)
+                
+                # RESET attack_has_hit khi attack animation loop lại
+                if self.state == 'attack' and prev_frame > self.current_frame:
+                    # Animation đã loop về đầu (prev_frame > current_frame)
+                    self.attack_has_hit = False
+                    print(f"[BOSS] Attack animation finished, resetting attack_has_hit")
         
         # Update image
         if self.current_frame < len(frames):
